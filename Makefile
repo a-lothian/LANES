@@ -1,5 +1,7 @@
+# THIS MAKEFILE IS AI GENERATED.
+
 CXX      := g++
-CXXFLAGS := -std=c++17 -Wall -Wextra -Iinclude
+CXXFLAGS := -std=c++17 -Wall -Wextra -Iinclude -MMD -MP
 BUILD    := build
 TARGET   := $(BUILD)/lanes
 
@@ -20,5 +22,7 @@ run: $(TARGET)
 
 clean:
 	rm -rf $(BUILD)
+
+-include $(OBJS:.o=.d)
 
 .PHONY: all run clean

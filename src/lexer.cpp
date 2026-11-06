@@ -1,95 +1,74 @@
-#include <iostream>
-#include <string>
-#include <vector>
-#include "include/token.hpp"
+#include "lexer.h"
 
-
-class Lexer {
-    public:
-    Lexer(std::string& src) : src_(src) {}
-    struct Token next() {
-        int start = pos_++;
-        char c = src_[start];
-
-        // check for end of file
-        if (pos_ > src_.length()) {return Token(TokenType::Eof, start, start);}
-        if (isdigit(c)) { return tokenizeNumber(start);} // parse numbers
-
-        switch (c) {
-            // single character tokens
-            case '(': return Token(TokenType::LeftBracket, start, pos_);
-            case ')': return Token(TokenType::RightBracket, start, pos_);
-            case '{': return Token(TokenType::LeftBrace, start, pos_);
-            case '}': return Token(TokenType::RightBrace, start, pos_);
-            case ',': return Token(TokenType::Comma, start, pos_);
-            case ':': return Token(TokenType::Colon, start, pos_);
-            case ';': return Token(TokenType::SemiColon, start, pos_);
-            case '+': return Token(TokenType::Plus, start, pos_);
-            case '*': return Token(TokenType::Star, start, pos_);
-            case '/': return Token(TokenType::Slash, start, pos_);
-            // two character tokens
-            case '-': return oneOrTwoCharToken(start, '>', TokenType::Arrow, TokenType::Minus);
-            case '=': return oneOrTwoCharToken(start, '=', TokenType::EqualTo, TokenType::Equal);
-            case '<': return oneOrTwoCharToken(start, '=', TokenType::LessThanEqualTo, TokenType::LessThan);
-            case '>': return oneOrTwoCharToken(start, '=', TokenType::GreaterThanEqualTo, TokenType::GreaterThan);
-            case '!': return oneOrTwoCharToken(start, '=', TokenType::NotEqualTo, TokenType::ERROR);
-        }
-        return Token(TokenType::ERROR, start, pos_);
-    }
-
-    private:
-    std::string src_;
-    uint pos_ = 0;
-
-    char peek(int steps) {
-        if (pos_+steps < src_.length()) {
-            return src_[pos_+steps];
-        }
-        // TODO: error logging if out of bounds
-        return '@';
-    }
-
-    bool peekMatch(int steps, char c) {
-        return peek(steps) == c;
-    }
-
-    Token oneOrTwoCharToken(uint start, char peekCheck, TokenType peekSuccess, TokenType peekFail) {
-        if (peekMatch(0, peekCheck)) {
-            return Token(peekSuccess, start, ++pos_);
-        } else {
-            return Token(peekFail, start, pos_);
-        }
-    }
-
-    Token tokenizeNumber(uint start) {
-        while (isdigit(peek(0))) {pos_++;} // advance to end of number
-
-        if (peekMatch(0, '.') && isdigit(peek(1))) {
-            pos_++; // skip over `.`
-            while (isdigit(peek(0))) {pos_++;} // advance to end of number
-            return Token(TokenType::LiteralFloat, start, pos_);
-        }
-        return Token(TokenType::LiteralInt, start, pos_);
-    }
-};
-
-
-int main(int k, char** args) {
-
-    std::string program = "4321->(;*==/+){:+1.21-><<=+}**!=<{-+-}}";
+std::vector<Token> Lexer::tokenize() {
     std::vector<Token> toks;
-    Lexer l(program);
 
-    bool run = true;
-    while (run) {
-        toks.emplace_back(l.next());
-        run = toks.back().type == TokenType::Eof ? false : true;
+    bool running = true;
+    while (running) {
+        toks.emplace_back(next());
+        running = toks.back().type == TokenType::Eof ? false : true;  // stop when EOF file added
     }
 
-    for (int k = 0; k < toks.size(); k++) {
-        toks[k].print();
-    }
+    return toks;
+}
 
-    std::cout << std::endl;
-    return 0;
+Token Lexer::next() {
+    uint start = pos_++;
+    char c = src_[start];
+
+    // check for end of file
+    if (pos_ > src_.length()) {return Token(TokenType::Eof, start, start);}
+    if (isdigit(c)) { return tokenizeNumber(start);} // parse numbers
+
+    switch (c) {
+        // single character tokens
+        case '(': return Token(TokenType::LeftBracket, start, pos_);
+        case ')': return Token(TokenType::RightBracket, start, pos_);
+        case '{': return Token(TokenType::LeftBrace, start, pos_);
+        case '}': return Token(TokenType::RightBrace, start, pos_);
+        case ',': return Token(TokenType::Comma, start, pos_);
+        case ':': return Token(TokenType::Colon, start, pos_);
+        case ';': return Token(TokenType::SemiColon, start, pos_);
+        case '+': return Token(TokenType::Plus, start, pos_);
+        case '*': return Token(TokenType::Star, start, pos_);
+        case '/': return Token(TokenType::Slash, start, pos_);
+        // two character tokens
+        case '-': return oneOrTwoCharToken(start, '>', TokenType::Arrow, TokenType::Minus);
+        case '=': return oneOrTwoCharToken(start, '=', TokenType::EqualTo, TokenType::Equal);
+        case '<': return oneOrTwoCharToken(start, '=', TokenType::LessThanEqualTo, TokenType::LessThan);
+        case '>': return oneOrTwoCharToken(start, '=', TokenType::GreaterThanEqualTo, TokenType::GreaterThan);
+        case '!': return oneOrTwoCharToken(start, '=', TokenType::NotEqualTo, TokenType::ERROR);
+    }
+    return Token(TokenType::ERROR, start, pos_);
+}
+
+char Lexer::peek(int steps) const {
+    if (pos_+steps < src_.length()) {
+        return src_[pos_+steps];
+    }
+    // TODO: error logging if out of bounds
+    return '@';
+}
+
+bool Lexer::peekMatch(int steps, char c) const {
+    return peek(steps) == c;
+}
+
+Token Lexer::oneOrTwoCharToken(uint start, char peekCheck, TokenType peekSuccess, TokenType peekFail) {
+    if (peekMatch(0, peekCheck)) {
+        return Token(peekSuccess, start, ++pos_);
+    } else {
+        return Token(peekFail, start, pos_);
+    }
+}
+
+Token Lexer::tokenizeNumber(uint start) {
+    while (isdigit(peek(0))) {pos_++;} // advance to end of number
+
+    if (peekMatch(0, '.') && isdigit(peek(1))) {
+        pos_++; // skip over `.`
+        while (isdigit(peek(0))) {pos_++;} // advance to end of number
+        return Token(TokenType::LiteralFloat, start, pos_);
+    }
+    return Token(TokenType::LiteralInt, start, pos_);
 }
