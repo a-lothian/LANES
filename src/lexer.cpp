@@ -11,6 +11,8 @@ class Lexer {
         int start = pos_++;
         char c = src_[start];
 
+        if (isdigit(c)) { return tokenizeNumber(start);}
+
         switch (c) {
             // single character tokens
             case '(': return Token(TokenType::LeftBracket, start, pos_);
@@ -29,7 +31,6 @@ class Lexer {
             case '<': return oneOrTwoCharToken(start, '=', TokenType::LessThanEqualTo, TokenType::LessThan);
             case '>': return oneOrTwoCharToken(start, '=', TokenType::GreaterThanEqualTo, TokenType::GreaterThan);
             case '!': return oneOrTwoCharToken(start, '=', TokenType::NotEqualTo, TokenType::ERROR);
-
         }
         return Token(TokenType::ERROR, start, pos_);
     }
@@ -38,23 +39,43 @@ class Lexer {
     std::string src_;
     uint pos_ = 0;
 
-    bool peekMatch(char c) {
-        return src_[pos_] == c;
+    char peek(int steps) {
+        if (pos_+steps < src_.length()) {
+            return src_[pos_+steps];
+        }
+        // TODO: error logging if out of bounds
+        return '@';
+    }
+
+    bool peekMatch(int steps, char c) {
+        return peek(steps) == c;
     }
 
     Token oneOrTwoCharToken(uint start, char peekCheck, TokenType peekSuccess, TokenType peekFail) {
-        if (peekMatch(peekCheck)) {
+        if (peekMatch(0, peekCheck)) {
             return Token(peekSuccess, start, ++pos_);
         } else {
             return Token(peekFail, start, pos_);
         }
+    }
+
+    Token tokenizeNumber(uint start) {
+        while (isdigit(peek(0))) {pos_++;} // advance to end of number
+
+        if (peekMatch(0, '.') && isdigit(peek(1))) {
+            pos_++; // skip over `.`
+            while (isdigit(peek(0))) {pos_++;} // advance to end of number
+            return Token(TokenType::LiteralFloat, start, pos_);
+        }
+        return Token(TokenType::LiteralInt, start, pos_);
     }
 };
 
 
 int main(int k, char** args) {
 
-    std::string program = "->(;*==/+){:+-><<=+}";
+    std::string program = "4321->(;*==/+){:+1.21-><<=+}";
+    // std::string program = "()+-==>=<=->";
     std::vector<Token> toks;
     Lexer l(program);
 
@@ -62,7 +83,7 @@ int main(int k, char** args) {
         toks.emplace_back(l.next());
     }
 
-    for (int k = 0; k < program.length(); k++) {
+    for (int k = 0; k < toks.size(); k++) {
         toks[k].print();
     }
 
