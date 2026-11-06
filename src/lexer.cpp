@@ -11,7 +11,9 @@ class Lexer {
         int start = pos_++;
         char c = src_[start];
 
-        if (isdigit(c)) { return tokenizeNumber(start);}
+        // check for end of file
+        if (pos_ > src_.length()) {return Token(TokenType::Eof, start, start);}
+        if (isdigit(c)) { return tokenizeNumber(start);} // parse numbers
 
         switch (c) {
             // single character tokens
@@ -74,18 +76,20 @@ class Lexer {
 
 int main(int k, char** args) {
 
-    std::string program = "4321->(;*==/+){:+1.21-><<=+}";
-    // std::string program = "()+-==>=<=->";
+    std::string program = "4321->(;*==/+){:+1.21-><<=+}**!=<{-+-}}";
     std::vector<Token> toks;
     Lexer l(program);
 
-    for (int i = 0; i < program.length(); i++) {
+    bool run = true;
+    while (run) {
         toks.emplace_back(l.next());
+        run = toks.back().type == TokenType::Eof ? false : true;
     }
 
     for (int k = 0; k < toks.size(); k++) {
         toks[k].print();
     }
 
+    std::cout << std::endl;
     return 0;
 }
