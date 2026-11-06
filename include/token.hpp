@@ -118,6 +118,6 @@ struct Token {
     Span span;
 
     Token(TokenType t, uint b, uint e) : type(t), span(Span(b,e)) {}
-    void print() { std::cout << tokenSymbol(type) << '\n'; }
-    void printName() { std::cout << tokenName(type) << '\n'; }
+    void print() { std::cout << tokenSymbol(type); }
+    void printName() { std::cout << tokenName(type); }
 };
