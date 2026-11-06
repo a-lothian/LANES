@@ -38,7 +38,7 @@ enum class TokenType {
     GreaterThan,
     LessThanEqualTo,
     GreaterThanEqualTo,
-    EOF
+    Eof
 };
 
 struct Token {
