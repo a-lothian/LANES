@@ -1,15 +1,34 @@
 #include "lexer.h"
 
-std::vector<Token> Lexer::tokenize() {
-    std::vector<Token> toks;
+bool Lexer::tokenize(const std::string& src) {
+    src_ = src;
+    initialized = true;
+    return tokenize();
+}
+
+const std::vector<Token> Lexer::tokens() {
+    if (!initialized) {
+        std::cout << "ERROR: Lexer not initialized" << std::endl;
+        return std::vector<Token>();
+    }
+    return tokens_;
+}
+
+bool Lexer::tokenize() {
+    if (!initialized) {
+        std::cout << "ERROR: Lexer not initialized" << std::endl;
+        return 0;
+    }
+    tokens_.clear();
+    pos_ = 0;
 
     bool running = true;
     while (running) {
-        toks.emplace_back(next());
-        running = toks.back().type == TokenType::Eof ? false : true;  // stop when EOF file added
+        tokens_.emplace_back(next());
+        running = tokens_.back().type == TokenType::Eof ? false : true;  // stop when EOF file added
     }
 
-    return toks;
+    return 1;
 }
 
 Token Lexer::next() {

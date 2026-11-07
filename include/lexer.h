@@ -7,15 +7,24 @@
 
 class Lexer {
 public:
-    Lexer(const std::string& src) : src_(src) {}
+    Lexer(const std::string& src) : initialized(true), src_(src){}
+    Lexer() {}
 
-    std::vector<Token> tokenize();
+    // tokenize entire string
+    bool tokenize();
+    bool tokenize(const std::string& src);
+
+    // get tokenized result
+    const std::vector<Token> tokens();
+
     // returns next token from source
     Token next();
 
 private:
+    bool initialized;
     std::string src_;
     uint pos_ = 0;
+    std::vector<Token> tokens_;
 
     char peek(int steps) const;
     bool peekMatch(int steps, char c) const;

@@ -7,11 +7,11 @@
 class FileReader {
     public:
     std::string document;
-    
-    FileReader(std::string file);
-    bool dumpFile();
 
-    private:
+    FileReader();
+    bool dumpFile(std::string file);
+
+   private:
     std::string filename;
     bool readDocument;
 
