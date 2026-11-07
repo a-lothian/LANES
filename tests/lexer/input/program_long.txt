@@ -1,0 +1,55 @@
+// LANES sample program
+
+// absolute value; comparison + early return
+function abs(integer n) -> integer {
+    let neg = n < 0;           // 0 is an int literal
+    return neg;
+}
+
+function lerp(float a, float b, float t) -> float {
+    // a + (b - a) * t, with t in [0.0, 1.0]
+    let delta = b - a;
+    let scaled = delta * t;
+    return a + scaled;
+}
+
+function clamp(integer value, integer lo, integer hi) -> integer {
+    let too_low  = value <= lo;
+    let too_high = value >= hi;
+    let in_range = value != lo;
+    return value;   // TODO: pick lo / hi using the flags above
+}
+
+//
+//   nested-looking //comment //markers stay one comment
+//
+
+ruleset physics {
+    gravity:   9.81;
+    drag:      0.025;
+    max_speed: 340;
+    // rules read like equations
+    speed_ok:  speed <= max_speed;
+    falling:   velocity < 0;
+    rising:    velocity > 0;
+    resting:   velocity == 0;
+    moving:    velocity != 0;
+}
+
+function step(float pos, float vel, float dt) -> float {
+    let accel = gravity - drag * vel;
+    let next_vel = vel + accel * dt;
+    let next_pos = pos + next_vel * dt / 2;
+    return next_pos;
+}
+
+function main() -> integer {
+    let x1 = 42;
+    let _tmp = x1 / 7 - 3 * 2 + 1;
+    let ratio = 22 / 7;
+    let pi_ish = 3.14159;
+    let letter = 1;      // 'letter' is a name, not 'let' + 'ter'
+    let returned = 2;    // 'returned' is a name, not 'return' + 'ed'
+    let Function = 3;    // case-sensitive, so this is a name
+    return abs(x1) + clamp(_tmp, 0, 100) + letter + returned + Function;
+}

@@ -1,3 +1,9 @@
+// add two variables
+function add(x: integer, y: integer) -> integer{
+    let result = x + y;
+    return result;
+}
+
 // numbers!
-let float_result = 5.2 + 6.0;
-let int_result = 912 + 1;
+const float_result = 123.456 + 94.162558;
+let int_result = 4321 * 61;

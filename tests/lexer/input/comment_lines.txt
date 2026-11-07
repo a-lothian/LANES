@@ -1,0 +1,7 @@
+// header
+
+let // trailing
+
+// middle
+x
+// end

@@ -1,0 +1,2 @@
+// add two numbers
+function add(integer x, integer y) -> integer{x + y};

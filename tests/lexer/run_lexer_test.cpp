@@ -12,7 +12,8 @@ static std::vector<std::string> tests = {
     "number_trailing_dot.txt", "number_two_dots.txt", "numbers.txt",
     "singlechartokens.txt", "twochartokens.txt",
     "keywords.txt", "names.txt", "keyword_prefix.txt", "keyword_case.txt",
-    "name_number_mix.txt", "keyword_expression.txt", "keyword_punctuation.txt"
+    "name_number_mix.txt", "keyword_expression.txt", "keyword_punctuation.txt",
+    "whitespace_basic.txt", "whitespace_only.txt", "whitespace_splits_tokens.txt", "whitespace_splits_operators.txt", "comment_basic.txt", "comment_at_eof.txt", "comment_only.txt", "comment_lines.txt", "comment_slash.txt", "comment_contents.txt", "comment_triple_slash.txt", "comment_adjacent.txt", "comment_crlf.txt", "program.txt", "program_long.txt"
 };
 
 static FileReader reader;
@@ -53,7 +54,7 @@ bool run_lexer_tests() {
         if (test_passed) {
             std::cout << "PASSED: " << filename << "\n";
         } else {
-            std::cout << "FAILED: " << filename << "\n";
+            std::cout << "FAILED: " << filename << "<------|\n";
             std::cout << "    Expected output : " << test_validation << "\n";
             std::cout << "    Lexer output: " << test_output << "\n";
             passing = false;

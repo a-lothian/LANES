@@ -1,1 +1,2 @@
-let_x=y1+2;return(x)
+let x = y1 + 2;
+return (x)
