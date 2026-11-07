@@ -1,5 +1,5 @@
-#ifndef LANES_TOKEN_HPP
-#define LANES_TOKEN_HPP
+#ifndef TOKEN_HPP
+#define TOKEN_HPP
 
 #include <string>
 #include <iostream>
@@ -61,4 +61,4 @@ struct Token {
     void printName() { std::cout << tokenName(type); }
 };
 
-#endif // LANES_TOKEN_HPP
+#endif // TOKEN_HPP
