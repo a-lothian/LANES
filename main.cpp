@@ -7,7 +7,7 @@
 int main() {
     // read file from disk, tokenize, and print result
     FileReader reader;
-    if (!reader.dumpFile("tests/tokenizer/input/alltokens.txt")) {
+    if (!reader.dumpFile("tests/lexer/input/alltokens.txt")) {
         return 1;
     }
     Lexer l(reader.document);

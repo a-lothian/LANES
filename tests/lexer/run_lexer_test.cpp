@@ -4,22 +4,23 @@
 #include <sstream>
 #include "lexer.h"
 #include "file_reader.hpp"
+#include "run_lexer_test.h"
 
-std::vector<std::string> tests = {
+static std::vector<std::string> tests = {
     "alltokens.txt", "empty.txt", "errors.txt",
     "expression.txt", "greedy.txt", "number_leading_dot.txt",
     "number_trailing_dot.txt", "number_two_dots.txt", "numbers.txt",
     "singlechartokens.txt", "twochartokens.txt"
 };
 
-FileReader reader;
-Lexer lexer;
+static FileReader reader;
+static Lexer lexer;
 
-std::string test_input;
-std::string test_output;
-std::string test_validation;
+static std::string test_input;
+static std::string test_output;
+static std::string test_validation;
 
-std::ostringstream ss;
+static std::ostringstream ss;
 
 static void clearData() {
     test_input.clear();
@@ -29,12 +30,12 @@ static void clearData() {
     ss.clear();
 }
 
-int main() {
+bool run_lexer_tests() {
     bool passing = true;
     for (std::string filename : tests) {
         clearData();
 
-        reader.dumpFile(R"(tests/tokenizer/input/)"  + filename);
+        reader.dumpFile(R"(tests/lexer/input/)"  + filename);
         test_input = reader.document;
 
         lexer.tokenize(test_input);
@@ -42,7 +43,7 @@ int main() {
             ss << tokenSymbol(t.type);
         }
         test_output = ss.str();
-        reader.dumpFile(R"(tests/tokenizer/validation/)" + filename);
+        reader.dumpFile(R"(tests/lexer/validation/)" + filename);
         test_validation = reader.document;
 
         bool test_passed = test_validation.compare(test_output) == 0;
@@ -52,9 +53,10 @@ int main() {
         } else {
             std::cout << "FAILED: " << filename << "\n";
             std::cout << "    Expected output : " << test_validation << "\n";
-            std::cout << "    Tokenizer output: " << test_output << "\n";
+            std::cout << "    Lexer output: " << test_output << "\n";
             passing = false;
         }
     }
-    std::cout << "Tokenizer Test Result: " << (passing ? "PASSED" : "FAILED") << "\n";
+    std::cout << "Lexer Test Result: " << (passing ? "PASSED" : "FAILED") << "\n";
+    return passing;
 }

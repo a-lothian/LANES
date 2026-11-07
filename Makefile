@@ -10,8 +10,8 @@ OBJS := $(SRCS:%.cpp=$(BUILD)/%.o)
 
 LIB_OBJS     := $(SRCS:main.cpp=)
 LIB_OBJS     := $(patsubst %.cpp,$(BUILD)/%.o,$(filter %.cpp,$(LIB_OBJS)))
-TEST_SRC     := tests/tokenizer/run_tokenizer_test.cpp
-TEST_TARGET  := $(BUILD)/run_tokenizer_test
+TEST_SRCS    := tests/run_tests.cpp tests/lexer/run_lexer_test.cpp
+TEST_TARGET  := $(BUILD)/run_tests
 
 all: $(TARGET)
 
@@ -25,7 +25,7 @@ $(BUILD)/%.o: %.cpp
 run: $(TARGET)
 	./$(TARGET)
 
-$(TEST_TARGET): $(TEST_SRC) $(LIB_OBJS)
+$(TEST_TARGET): $(TEST_SRCS) $(LIB_OBJS)
 	@mkdir -p $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
