@@ -15,7 +15,7 @@ public:
     bool tokenize(const std::string& src);
 
     // get tokenized result
-    const std::vector<Token> tokens();
+    const std::vector<Token> get_tokens();
 
     // returns next token from source
     Token next();
@@ -28,8 +28,11 @@ private:
 
     char peek(int steps) const;
     bool peekMatch(int steps, char c) const;
-    Token oneOrTwoCharToken(uint start, char peekCheck, TokenType peekSuccess, TokenType peekFail);
+    Token oneOrTwoCharToken(uint start, char peekCheck, TokenType peekSuccess, TokenType peekFail); // greedy handling e.g '-' vs '->'
     Token tokenizeNumber(uint start);
+    Token tokenizeKeyword(uint start);
+
+
 };
 
 #endif // LANES_LEXER_H

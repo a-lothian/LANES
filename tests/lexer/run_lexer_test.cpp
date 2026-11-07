@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 #include <sstream>
-#include "lexer.h"
+#include "lexer.hpp"
 #include "file_reader.hpp"
 #include "run_lexer_test.h"
 
@@ -10,7 +10,9 @@ static std::vector<std::string> tests = {
     "alltokens.txt", "empty.txt", "errors.txt",
     "expression.txt", "greedy.txt", "number_leading_dot.txt",
     "number_trailing_dot.txt", "number_two_dots.txt", "numbers.txt",
-    "singlechartokens.txt", "twochartokens.txt"
+    "singlechartokens.txt", "twochartokens.txt",
+    "keywords.txt", "names.txt", "keyword_prefix.txt", "keyword_case.txt",
+    "name_number_mix.txt", "keyword_expression.txt", "keyword_punctuation.txt"
 };
 
 static FileReader reader;
@@ -39,7 +41,7 @@ bool run_lexer_tests() {
         test_input = reader.document;
 
         lexer.tokenize(test_input);
-        for (Token t : lexer.tokens()){
+        for (Token t : lexer.get_tokens()){
             ss << tokenSymbol(t.type);
         }
         test_output = ss.str();

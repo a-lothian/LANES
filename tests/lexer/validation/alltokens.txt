@@ -1,1 +1,1 @@
-<int>->(;*==/+){:+<float>-><<=+}**!=<{-+-}}<eof>
+<int>->let{return}(;*==/+)function(ruleset){:+<float>-><<=+}**!=<=<name><{-+-}}<name>,<name><eof>

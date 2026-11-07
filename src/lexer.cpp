@@ -1,17 +1,21 @@
-#include "lexer.h"
+#include "lexer.hpp"
+#include <unordered_map>
 
-bool Lexer::tokenize(const std::string& src) {
-    src_ = src;
-    initialized = true;
-    return tokenize();
-}
+bool isNameStart(char c) { return isalpha((unsigned char)c) || c == '_'; }
+bool isNameChar(char c)  { return isalnum((unsigned char)c) || c == '_'; }
 
-const std::vector<Token> Lexer::tokens() {
+const std::vector<Token> Lexer::get_tokens() {
     if (!initialized) {
         std::cout << "ERROR: Lexer not initialized" << std::endl;
         return std::vector<Token>();
     }
     return tokens_;
+}
+
+bool Lexer::tokenize(const std::string& src) {
+    src_ = src;
+    initialized = true;
+    return tokenize();
 }
 
 bool Lexer::tokenize() {
@@ -38,6 +42,7 @@ Token Lexer::next() {
     // check for end of file
     if (pos_ > src_.length()) {return Token(TokenType::Eof, start, start);}
     if (isdigit(c)) { return tokenizeNumber(start);} // parse numbers
+    if (isNameStart(c)) {return tokenizeKeyword(start);} // parse keywords and names
 
     switch (c) {
         // single character tokens
@@ -79,6 +84,21 @@ Token Lexer::oneOrTwoCharToken(uint start, char peekCheck, TokenType peekSuccess
     } else {
         return Token(peekFail, start, pos_);
     }
+}
+
+// keyword lookups
+const std::unordered_map<std::string_view, TokenType> keywords = {
+    {"function", TokenType::KeywordFunction},
+    {"ruleset", TokenType::KeywordRuleset},
+    {"let", TokenType::KeywordLet},
+    {"return", TokenType::KeywordReturn},
+};
+
+Token Lexer::tokenizeKeyword(uint start) {
+    while (isNameChar(peek(0))) {pos_++;} // advance to end of keyword
+    std::string_view word(src_.data() + start, pos_ - start); 
+    auto itr = keywords.find(word); // lookup substring
+    return Token(itr != keywords.end() ? itr->second : TokenType::Name, start, pos_); // assume name if not found
 }
 
 Token Lexer::tokenizeNumber(uint start) {
