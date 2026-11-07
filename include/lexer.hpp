@@ -26,13 +26,12 @@ private:
     uint pos_ = 0;
     std::vector<Token> tokens_;
 
+    void skipCommentsWhitespace();
     char peek(int steps) const;
     bool peekMatch(int steps, char c) const;
     Token oneOrTwoCharToken(uint start, char peekCheck, TokenType peekSuccess, TokenType peekFail); // greedy handling e.g '-' vs '->'
     Token tokenizeNumber(uint start);
     Token tokenizeKeyword(uint start);
-
-
 };
 
 #endif // LANES_LEXER_H

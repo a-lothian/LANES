@@ -36,11 +36,13 @@ bool Lexer::tokenize() {
 }
 
 Token Lexer::next() {
+    skipCommentsWhitespace();
     uint start = pos_++;
     char c = src_[start];
 
     // check for end of file
     if (pos_ > src_.length()) {return Token(TokenType::Eof, start, start);}
+
     if (isdigit(c)) { return tokenizeNumber(start);} // parse numbers
     if (isNameStart(c)) {return tokenizeKeyword(start);} // parse keywords and names
 
@@ -64,6 +66,20 @@ Token Lexer::next() {
         case '!': return oneOrTwoCharToken(start, '=', TokenType::NotEqualTo, TokenType::ERROR);
     }
     return Token(TokenType::ERROR, start, pos_);
+}
+
+void Lexer::skipCommentsWhitespace() {
+    while (pos_ < src_.length()) {
+        char c = peek(0);
+        if (isspace(c)) { // skip whitespace
+            pos_++;
+        } else if (peekMatch(0, '/') && peekMatch(1, '/')) {  // skip comments; between `//` and `\n`
+            while (pos_ < src_.length() && !(peekMatch(0, '\n'))) {pos_++;}
+        } else {
+            break;
+        }
+    }
+    
 }
 
 char Lexer::peek(int steps) const {

@@ -1,21 +1,23 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <file_reader.hpp>
 #include "lexer.hpp"
 
 int main() {
     // take input from terminal, tokenize, and print result
-    std::string input;
-    std::cin >> input;
+    FileReader reader;
+    reader.dumpFile("input.txt");
 
-    Lexer l(input);
+    Lexer l(reader.document);
     l.tokenize();
-    
+
     std::vector<Token> toks = l.get_tokens();
 
     for (size_t k = 0; k < toks.size(); k++) {
         toks[k].print();
     }
     std::cout << std::endl;
+
     return 0;
 }

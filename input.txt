@@ -1,0 +1,3 @@
+// numbers!
+let float_result = 5.2 + 6.0;
+let int_result = 912 + 1;
