@@ -18,6 +18,7 @@ enum class TypeKind
 struct Type
 {
     TypeKind kind;
+    std::shared_ptr<Type> elementType;
 };
 
 // base structure for all expressions
