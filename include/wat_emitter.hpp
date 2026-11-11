@@ -17,7 +17,7 @@ class WatFunction
 public:
     WatFunction(std::string name, std::vector<WatParam> params, std::vector<WatType> results);
 
-
+    const std::string& name() const { return name_; }
 
     // declare a local var
     // codegen will deal with reordering local definitions (must be at top)
@@ -65,6 +65,15 @@ public:
     void f32ConvertFromSignedI32();
     void i32TruncateFromSignedF32();
 
+    // memory management (for fields)
+    // offste is a constant byte offset added to the address on the stack
+    // load: pops an address, pushes the value stored there
+    // store: pops a value and an address (address pushed first), writes the value to memory
+    void i32LoadFromMemory(unsigned offset = 0);
+    void i32StoreToMemory(unsigned offset = 0);
+    void f32LoadFromMemory(unsigned offset = 0);
+    void f32StoreToMemory(unsigned offset = 0);
+
     // stack and call management
     void call(const std::string &fn);
     void drop();
@@ -84,13 +93,17 @@ public:
     // return the entire program as a string
     std::string str(int indent = 1) const;
 
+   private:
+    void emit(const std::string& instr);                              // write WAT line
+    void open(const std::string& keyword, const std::string& label);  // step into a control section (depth++)
 
-
-
-
+    std::string name_;
+    std::vector<WatParam> params_;
+    std::vector<WatType> results_;
+    std::vector<WatParam> locals_;
+    std::vector<std::string> lines_;  // WAT program
+    int depth_ = 0;                   // how many [functions | loops | if statements] deep am I?
 };
-
-#endif // LANES_WAT_EMITTER_HPP
 
 class WatModule  // we will only use one module per program
 {
