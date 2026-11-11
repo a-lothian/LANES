@@ -1,6 +1,7 @@
 #include <iostream>
 #include "lexer/run_lexer_test.h"
 #include "parser/run_parser_test.h"
+#include "codegen/run_wat_test.h"
 
 int main()
 {
@@ -8,6 +9,7 @@ int main()
 
     passing &= run_lexer_tests();
     passing &= run_parser_tests();
+    passing &= run_wat_tests();
 
     std::cout << "\nOverall Result: " << (passing ? "PASSED" : "FAILED") << "\n";
 
