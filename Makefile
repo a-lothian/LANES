@@ -10,7 +10,7 @@ OBJS := $(SRCS:%.cpp=$(BUILD)/%.o)
 
 LIB_OBJS     := $(SRCS:main.cpp=)
 LIB_OBJS     := $(patsubst %.cpp,$(BUILD)/%.o,$(filter %.cpp,$(LIB_OBJS)))
-TEST_SRCS    := tests/run_tests.cpp tests/lexer/run_lexer_test.cpp tests/parser/run_parser_test.cpp
+TEST_SRCS    := tests/run_tests.cpp tests/lexer/run_lexer_test.cpp tests/parser/run_parser_test.cpp  tests/codegen/run_wat_test.cpp
 TEST_TARGET  := $(BUILD)/run_tests
 
 all: $(TARGET)

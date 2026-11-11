@@ -1,0 +1,18 @@
+(module
+  (import "env" "print" (func $print (param i32)))
+  (memory (export "memory") 1)
+  (global $g (mut i32) (i32.const 7))
+  (func $pick (param $c i32) (result f32)
+    local.get $c
+    if
+      f32.const 1
+      return
+    else
+      f32.const 0.5
+      f32.neg
+      return
+    end
+    unreachable
+    i32.load offset=4
+  )
+)

@@ -5,7 +5,7 @@
 #include "lexer.hpp"
 
 int main() {
-    // take input from terminal, tokenize, and print result
+    // take input from input.txt, tokenize, and print result
     FileReader reader;
     reader.dumpFile("input.txt");
 
