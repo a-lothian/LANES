@@ -1,0 +1,1 @@
+WatFunction 'bad' has unclosed control-flow constructs
