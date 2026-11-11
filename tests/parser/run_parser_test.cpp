@@ -110,10 +110,8 @@ bool run_parser_tests()
         passing &= expect(valid, "parser_ruleset_field_type");
     }
 
-    // TEST CASE 5
-    // statement not legal at the top level
     {
-        bool rejected = false; // should throw a ParseError (just for testing purposes, we don't really care about the error message)
+        bool rejected = false;
 
         try
         {
@@ -124,10 +122,157 @@ bool run_parser_tests()
             rejected = true;
         }
 
-        passing &= expect(rejected, "parser_rejects_invalid_top_level");
+        passing &= expect(
+            rejected,
+            "parser_rejects_invalid_top_level");
     }
 
-    // printing the overall result of the parser tests
+    {
+        Program program = parseSource(
+            "function main() -> integer { "
+            "let x = 12; "
+            "return x; "
+            "}");
+
+        auto *function =
+            dynamic_cast<FunctionDecl *>(
+                program.declarations[0].get());
+
+        auto *letStatement =
+            function == nullptr ||
+                    function->body->statements.empty()
+                ? nullptr
+                : dynamic_cast<LetStatement *>(
+                      function->body->statements[0].get());
+
+        auto *returnStatement =
+            function == nullptr ||
+                    function->body->statements.size() < 2
+                ? nullptr
+                : dynamic_cast<ReturnStatement *>(
+                      function->body->statements[1].get());
+
+        auto *initializer =
+            letStatement == nullptr
+                ? nullptr
+                : dynamic_cast<LiteralExpr *>(
+                      letStatement->initializer.get());
+
+        auto *returnValue =
+            returnStatement == nullptr
+                ? nullptr
+                : dynamic_cast<VariableExpr *>(
+                      returnStatement->value.get());
+
+        bool valid =
+            function != nullptr &&
+            function->body->statements.size() == 2 &&
+            letStatement != nullptr &&
+            letStatement->name == "x" &&
+            letStatement->type.kind == TypeKind::Void &&
+            initializer != nullptr &&
+            initializer->value == "12" &&
+            initializer->type.kind == TypeKind::Int &&
+            returnStatement != nullptr &&
+            returnValue != nullptr &&
+            returnValue->name == "x";
+
+        passing &= expect(
+            valid,
+            "parser_let_and_return_statements");
+    }
+
+    {
+        Program program = parseSource(
+            "function main() -> f32 { "
+            "let x: f32 = 5.25; "
+            "return x; "
+            "}");
+
+        auto *function =
+            dynamic_cast<FunctionDecl *>(
+                program.declarations[0].get());
+
+        auto *letStatement =
+            function == nullptr ||
+                    function->body->statements.empty()
+                ? nullptr
+                : dynamic_cast<LetStatement *>(
+                      function->body->statements[0].get());
+
+        auto *initializer =
+            letStatement == nullptr
+                ? nullptr
+                : dynamic_cast<LiteralExpr *>(
+                      letStatement->initializer.get());
+
+        bool valid =
+            letStatement != nullptr &&
+            letStatement->type.kind == TypeKind::Float &&
+            initializer != nullptr &&
+            initializer->type.kind == TypeKind::Float &&
+            initializer->value == "5.25";
+
+        passing &= expect(
+            valid,
+            "parser_typed_let_statement");
+    }
+
+    {
+        Program program = parseSource(
+            "function test() -> integer { "
+            "{ 7; } "
+            "return 1; "
+            "}");
+
+        auto *function =
+            dynamic_cast<FunctionDecl *>(
+                program.declarations[0].get());
+
+        auto *nestedBlock =
+            function == nullptr ||
+                    function->body->statements.empty()
+                ? nullptr
+                : dynamic_cast<BlockStatement *>(
+                      function->body->statements[0].get());
+
+        auto *expressionStatement =
+            nestedBlock == nullptr ||
+                    nestedBlock->statements.empty()
+                ? nullptr
+                : dynamic_cast<ExpressionStatement *>(
+                      nestedBlock->statements[0].get());
+
+        bool valid =
+            nestedBlock != nullptr &&
+            expressionStatement != nullptr;
+
+        passing &= expect(
+            valid,
+            "parser_nested_block_and_expression_statement");
+    }
+
+    {
+        bool rejected = false;
+
+        try
+        {
+            parseSource(
+                "function main() -> integer { "
+                "let x = 1 "
+                "return x; "
+                "}");
+        }
+        catch (const ParseError &)
+        {
+            rejected = true;
+        }
+
+        passing &= expect(
+            rejected,
+            "parser_rejects_missing_semicolon");
+    }
+
     std::cout
         << "Parser Test Result: "
         << (passing ? "PASSED" : "FAILED")

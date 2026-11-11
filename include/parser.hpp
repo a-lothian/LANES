@@ -47,7 +47,15 @@ private:
     std::vector<Parameter> parseParameters();
     Parameter parseParameter();
     Type parseType();
+
     std::unique_ptr<BlockStatement> parseBlock();
+    std::unique_ptr<Statement> parseStatement();
+    std::unique_ptr<Statement> parseLetStatement();
+    std::unique_ptr<Statement> parseReturnStatement();
+    std::unique_ptr<Statement> parseExpressionStatement();
+
+    std::unique_ptr<Expression> parseExpression();
+    std::unique_ptr<Expression> parsePrimary();
 };
 
 #endif

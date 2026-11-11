@@ -249,24 +249,157 @@ Type Parser::parseType()
 
 std::unique_ptr<BlockStatement> Parser::parseBlock()
 {
-    consume(
-        TokenType::LeftBrace,
-        "Expected '{' to start block.");
+    consume(TokenType::LeftBrace, "Expected '{' to start block.");
 
     auto block = std::make_unique<BlockStatement>();
 
-    // Statement parsing will be added in the next parser milestone.
-    // Empty blocks establish the parser and AST interface first.
-    if (!check(TokenType::RightBrace))
+    while (!check(TokenType::RightBrace) && !isAtEnd())
     {
-        fail(
-            peek(),
-            "Statement parsing is not implemented yet.");
+        block->statements.push_back(parseStatement());
+    }
+
+    consume(TokenType::RightBrace, "Expected '}' after block.");
+    return block;
+}
+
+std::unique_ptr<Statement> Parser::parseStatement()
+{
+    if (match(TokenType::KeywordLet))
+    {
+        return parseLetStatement();
+    }
+
+    if (match(TokenType::KeywordReturn))
+    {
+        return parseReturnStatement();
+    }
+
+    if (check(TokenType::LeftBrace))
+    {
+        return parseBlock();
+    }
+
+    return parseExpressionStatement();
+}
+
+std::unique_ptr<Statement> Parser::parseLetStatement()
+{
+    const Token &nameToken =
+        consume(
+            TokenType::Name,
+            "Expected variable name after 'let'.");
+
+    auto statement = std::make_unique<LetStatement>();
+    statement->name = lexeme(nameToken);
+
+    // LANES currently accepts both:
+    //
+    //     let x: i32 = 5;
+    //
+    // and:
+    //
+    //     let x = 5;
+    //
+    // The current AST does not have a separate Unknown/Inferred type.
+    // TypeKind::Void is therefore used temporarily for an omitted type.
+    // Semantic analysis can later infer or validate the actual type.
+    statement->type = Type{TypeKind::Void, nullptr};
+
+    if (match(TokenType::Colon))
+    {
+        statement->type = parseType();
     }
 
     consume(
-        TokenType::RightBrace,
-        "Expected '}' after block.");
+        TokenType::Equal,
+        "Expected '=' in variable declaration.");
 
-    return block;
+    statement->initializer = parseExpression();
+
+    consume(
+        TokenType::SemiColon,
+        "Expected ';' after variable declaration.");
+
+    return statement;
+}
+
+std::unique_ptr<Statement> Parser::parseReturnStatement()
+{
+    auto statement = std::make_unique<ReturnStatement>();
+
+    if (!check(TokenType::SemiColon))
+    {
+        statement->value = parseExpression();
+    }
+
+    consume(
+        TokenType::SemiColon,
+        "Expected ';' after return statement.");
+
+    return statement;
+}
+
+std::unique_ptr<Statement> Parser::parseExpressionStatement()
+{
+    auto statement = std::make_unique<ExpressionStatement>();
+
+    statement->expression = parseExpression();
+
+    consume(
+        TokenType::SemiColon,
+        "Expected ';' after expression.");
+
+    return statement;
+}
+
+std::unique_ptr<Expression> Parser::parseExpression()
+{
+    // Binary operators and precedence will be added in the next
+    // parser milestone.
+    return parsePrimary();
+}
+
+std::unique_ptr<Expression> Parser::parsePrimary()
+{
+    if (match(TokenType::LiteralInt))
+    {
+        auto expression = std::make_unique<LiteralExpr>();
+
+        expression->value = lexeme(previous());
+        expression->type = Type{TypeKind::Int, nullptr};
+
+        return expression;
+    }
+
+    if (match(TokenType::LiteralFloat))
+    {
+        auto expression = std::make_unique<LiteralExpr>();
+
+        expression->value = lexeme(previous());
+        expression->type = Type{TypeKind::Float, nullptr};
+
+        return expression;
+    }
+
+    if (match(TokenType::Name))
+    {
+        auto expression = std::make_unique<VariableExpr>();
+
+        expression->name = lexeme(previous());
+
+        return expression;
+    }
+
+    if (match(TokenType::LeftBracket))
+    {
+        std::unique_ptr<Expression> expression = parseExpression();
+
+        consume(
+            TokenType::RightBracket,
+            "Expected ')' after expression.");
+
+        return expression;
+    }
+
+    fail(peek(), "Expected expression.");
 }
