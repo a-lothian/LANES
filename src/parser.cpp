@@ -292,17 +292,11 @@ std::unique_ptr<Statement> Parser::parseLetStatement()
     auto statement = std::make_unique<LetStatement>();
     statement->name = lexeme(nameToken);
 
-    // LANES currently accepts both:
+    // the lang (LANES) currently accepts both: ( let x: i32 = 5; ) and ( let x = 5; )
     //
-    //     let x: i32 = 5;
-    //
-    // and:
-    //
-    //     let x = 5;
-    //
-    // The current AST does not have a separate Unknown/Inferred type.
-    // TypeKind::Void is therefore used temporarily for an omitted type.
-    // Semantic analysis can later infer or validate the actual type.
+    // current ast does not have a separate Unknown/Inferred type
+    // TypeKind::Void used temporarily for an omitted type (because of this^)
+    // actual type can be inferred / validated later during semantic analysis
     statement->type = Type{TypeKind::Void, nullptr};
 
     if (match(TokenType::Colon))
@@ -354,8 +348,165 @@ std::unique_ptr<Statement> Parser::parseExpressionStatement()
 
 std::unique_ptr<Expression> Parser::parseExpression()
 {
-    // Binary operators and precedence will be added in the next
-    // parser milestone.
+    return parseEquality();
+}
+
+std::unique_ptr<Expression> Parser::parseEquality()
+{
+    std::unique_ptr<Expression> expression = parseComparison();
+
+    while (
+        check(TokenType::EqualTo) ||
+        check(TokenType::NotEqualTo))
+    {
+        TokenType operatorType = advance().type;
+
+        std::unique_ptr<Expression> right =
+            parseComparison();
+
+        auto binary = std::make_unique<BinaryExpr>();
+
+        binary->op =
+            operatorType == TokenType::EqualTo
+                ? BinaryOperator::Equal
+                : BinaryOperator::NotEqual;
+
+        binary->left = std::move(expression);
+        binary->right = std::move(right);
+
+        expression = std::move(binary);
+    }
+
+    return expression;
+}
+
+std::unique_ptr<Expression> Parser::parseComparison()
+{
+    std::unique_ptr<Expression> expression = parseTerm();
+
+    while (
+        check(TokenType::LessThan) ||
+        check(TokenType::GreaterThan) ||
+        check(TokenType::LessThanEqualTo) ||
+        check(TokenType::GreaterThanEqualTo))
+    {
+        TokenType operatorType = advance().type;
+
+        std::unique_ptr<Expression> right =
+            parseTerm();
+
+        auto binary = std::make_unique<BinaryExpr>();
+
+        switch (operatorType)
+        {
+        case TokenType::LessThan:
+            binary->op =
+                BinaryOperator::LessThan;
+            break;
+
+        case TokenType::GreaterThan:
+            binary->op =
+                BinaryOperator::GreaterThan;
+            break;
+
+        case TokenType::LessThanEqualTo:
+            binary->op =
+                BinaryOperator::LessThanEqual;
+            break;
+
+        case TokenType::GreaterThanEqualTo:
+            binary->op =
+                BinaryOperator::GreaterThanEqual;
+            break;
+
+        default:
+            fail(
+                previous(),
+                "Invalid comparison operator.");
+        }
+
+        binary->left = std::move(expression);
+        binary->right = std::move(right);
+
+        expression = std::move(binary);
+    }
+
+    return expression;
+}
+
+std::unique_ptr<Expression> Parser::parseTerm()
+{
+    std::unique_ptr<Expression> expression =
+        parseFactor();
+
+    while (
+        check(TokenType::Plus) ||
+        check(TokenType::Minus))
+    {
+        TokenType operatorType = advance().type;
+
+        std::unique_ptr<Expression> right =
+            parseFactor();
+
+        auto binary = std::make_unique<BinaryExpr>();
+
+        binary->op =
+            operatorType == TokenType::Plus
+                ? BinaryOperator::Add
+                : BinaryOperator::Subtract;
+
+        binary->left = std::move(expression);
+        binary->right = std::move(right);
+
+        expression = std::move(binary);
+    }
+
+    return expression;
+}
+
+std::unique_ptr<Expression> Parser::parseFactor()
+{
+    std::unique_ptr<Expression> expression =
+        parseUnary();
+
+    while (
+        check(TokenType::Star) ||
+        check(TokenType::Slash))
+    {
+        TokenType operatorType = advance().type;
+
+        std::unique_ptr<Expression> right =
+            parseUnary();
+
+        auto binary = std::make_unique<BinaryExpr>();
+
+        binary->op =
+            operatorType == TokenType::Star
+                ? BinaryOperator::Multiply
+                : BinaryOperator::Divide;
+
+        binary->left = std::move(expression);
+        binary->right = std::move(right);
+
+        expression = std::move(binary);
+    }
+
+    return expression;
+}
+
+std::unique_ptr<Expression> Parser::parseUnary()
+{
+    if (match(TokenType::Minus))
+    {
+        auto expression =
+            std::make_unique<UnaryExpr>();
+
+        expression->op = UnaryOperator::Negate;
+        expression->operand = parseUnary();
+
+        return expression;
+    }
+
     return parsePrimary();
 }
 
@@ -363,36 +514,83 @@ std::unique_ptr<Expression> Parser::parsePrimary()
 {
     if (match(TokenType::LiteralInt))
     {
-        auto expression = std::make_unique<LiteralExpr>();
+        auto expression =
+            std::make_unique<LiteralExpr>();
 
         expression->value = lexeme(previous());
-        expression->type = Type{TypeKind::Int, nullptr};
+        expression->type =
+            Type{TypeKind::Int, nullptr};
 
         return expression;
     }
 
     if (match(TokenType::LiteralFloat))
     {
-        auto expression = std::make_unique<LiteralExpr>();
+        auto expression =
+            std::make_unique<LiteralExpr>();
 
         expression->value = lexeme(previous());
-        expression->type = Type{TypeKind::Float, nullptr};
+        expression->type =
+            Type{TypeKind::Float, nullptr};
 
         return expression;
     }
 
     if (match(TokenType::Name))
     {
-        auto expression = std::make_unique<VariableExpr>();
+        const Token &nameToken = previous();
 
-        expression->name = lexeme(previous());
+        std::string name = lexeme(nameToken);
+
+        // true and false currently tokenised as names by the lexer -> so the parser recognises them here
+        if (name == "true" || name == "false")
+        {
+            auto expression =
+                std::make_unique<LiteralExpr>();
+
+            expression->value = name;
+            expression->type =
+                Type{TypeKind::Bool, nullptr};
+
+            return expression;
+        }
+
+        // name immediately followed by '(' for function calling
+        if (match(TokenType::LeftBracket))
+        {
+            auto expression =
+                std::make_unique<CallExpr>();
+
+            expression->name = std::move(name);
+
+            if (!check(TokenType::RightBracket))
+            {
+                do
+                {
+                    expression->arguments.push_back(
+                        parseExpression());
+                } while (match(TokenType::Comma));
+            }
+
+            consume(
+                TokenType::RightBracket,
+                "Expected ')' after function arguments.");
+
+            return expression;
+        }
+
+        auto expression =
+            std::make_unique<VariableExpr>();
+
+        expression->name = std::move(name);
 
         return expression;
     }
 
     if (match(TokenType::LeftBracket))
     {
-        std::unique_ptr<Expression> expression = parseExpression();
+        std::unique_ptr<Expression> expression =
+            parseExpression();
 
         consume(
             TokenType::RightBracket,

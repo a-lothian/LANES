@@ -55,6 +55,11 @@ private:
     std::unique_ptr<Statement> parseExpressionStatement();
 
     std::unique_ptr<Expression> parseExpression();
+    std::unique_ptr<Expression> parseEquality();
+    std::unique_ptr<Expression> parseComparison();
+    std::unique_ptr<Expression> parseTerm();
+    std::unique_ptr<Expression> parseFactor();
+    std::unique_ptr<Expression> parseUnary();
     std::unique_ptr<Expression> parsePrimary();
 };
 

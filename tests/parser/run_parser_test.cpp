@@ -273,6 +273,292 @@ bool run_parser_tests()
             "parser_rejects_missing_semicolon");
     }
 
+    {
+        Program program = parseSource(
+            "function calc(x: integer, y: integer) -> integer { "
+            "let result = x + y * 2; "
+            "return result; "
+            "}");
+
+        auto *function =
+            dynamic_cast<FunctionDecl *>(
+                program.declarations[0].get());
+
+        auto *letStatement =
+            dynamic_cast<LetStatement *>(
+                function->body->statements[0].get());
+
+        auto *add =
+            dynamic_cast<BinaryExpr *>(
+                letStatement->initializer.get());
+
+        auto *multiply =
+            add == nullptr
+                ? nullptr
+                : dynamic_cast<BinaryExpr *>(
+                      add->right.get());
+
+        bool valid =
+            add != nullptr &&
+            add->op == BinaryOperator::Add &&
+            multiply != nullptr &&
+            multiply->op == BinaryOperator::Multiply;
+
+        passing &= expect(
+            valid,
+            "parser_operator_precedence");
+
+        // TEST CASE 10 (multiplication before addition)
+        {
+            Program program = parseSource(
+                "function calc(x: integer, y: integer) -> integer { "
+                "let result = x + y * 2; "
+                "return result; "
+                "}");
+
+            auto *function =
+                dynamic_cast<FunctionDecl *>(
+                    program.declarations[0].get());
+
+            auto *letStatement =
+                dynamic_cast<LetStatement *>(
+                    function->body->statements[0].get());
+
+            auto *add =
+                dynamic_cast<BinaryExpr *>(
+                    letStatement->initializer.get());
+
+            auto *multiply =
+                add == nullptr
+                    ? nullptr
+                    : dynamic_cast<BinaryExpr *>(
+                          add->right.get());
+
+            bool valid =
+                add != nullptr &&
+                add->op == BinaryOperator::Add &&
+                multiply != nullptr &&
+                multiply->op == BinaryOperator::Multiply;
+
+            passing &= expect(
+                valid,
+                "parser_operator_precedence");
+        }
+
+        // TEST CASE 11 (parentheses override precedence)
+        {
+            Program program = parseSource(
+                "function calc(x: integer, y: integer) -> integer { "
+                "return (x + y) * 2; "
+                "}");
+
+            auto *function =
+                dynamic_cast<FunctionDecl *>(
+                    program.declarations[0].get());
+
+            auto *returnStatement =
+                dynamic_cast<ReturnStatement *>(
+                    function->body->statements[0].get());
+
+            auto *multiply =
+                dynamic_cast<BinaryExpr *>(
+                    returnStatement->value.get());
+
+            auto *add =
+                multiply == nullptr
+                    ? nullptr
+                    : dynamic_cast<BinaryExpr *>(
+                          multiply->left.get());
+
+            bool valid =
+                multiply != nullptr &&
+                multiply->op == BinaryOperator::Multiply &&
+                add != nullptr &&
+                add->op == BinaryOperator::Add;
+
+            passing &= expect(
+                valid,
+                "parser_parenthesised_expression");
+        }
+
+        // TEST CASE 12 (comparisons)
+        {
+            Program program = parseSource(
+                "function compare(x: integer, y: integer) -> bool { "
+                "return x + 1 >= y * 2; "
+                "}");
+
+            auto *function =
+                dynamic_cast<FunctionDecl *>(
+                    program.declarations[0].get());
+
+            auto *returnStatement =
+                dynamic_cast<ReturnStatement *>(
+                    function->body->statements[0].get());
+
+            auto *comparison =
+                dynamic_cast<BinaryExpr *>(
+                    returnStatement->value.get());
+
+            auto *left =
+                comparison == nullptr
+                    ? nullptr
+                    : dynamic_cast<BinaryExpr *>(
+                          comparison->left.get());
+
+            auto *right =
+                comparison == nullptr
+                    ? nullptr
+                    : dynamic_cast<BinaryExpr *>(
+                          comparison->right.get());
+
+            bool valid =
+                comparison != nullptr &&
+                comparison->op ==
+                    BinaryOperator::GreaterThanEqual &&
+                left != nullptr &&
+                left->op == BinaryOperator::Add &&
+                right != nullptr &&
+                right->op == BinaryOperator::Multiply;
+
+            passing &= expect(
+                valid,
+                "parser_comparison_expression");
+        }
+
+        // TEST CASE 13 (equality)
+        {
+            Program program = parseSource(
+                "function equal(x: integer, y: integer) -> bool { "
+                "return x == y; "
+                "}");
+
+            auto *function =
+                dynamic_cast<FunctionDecl *>(
+                    program.declarations[0].get());
+
+            auto *returnStatement =
+                dynamic_cast<ReturnStatement *>(
+                    function->body->statements[0].get());
+
+            auto *equality =
+                dynamic_cast<BinaryExpr *>(
+                    returnStatement->value.get());
+
+            bool valid =
+                equality != nullptr &&
+                equality->op == BinaryOperator::Equal;
+
+            passing &= expect(
+                valid,
+                "parser_equality_expression");
+        }
+
+        // TEST CASE 14 (unary minus)
+        {
+            Program program = parseSource(
+                "function negate(x: integer) -> integer { "
+                "return -x * 2; "
+                "}");
+
+            auto *function =
+                dynamic_cast<FunctionDecl *>(
+                    program.declarations[0].get());
+
+            auto *returnStatement =
+                dynamic_cast<ReturnStatement *>(
+                    function->body->statements[0].get());
+
+            auto *multiply =
+                dynamic_cast<BinaryExpr *>(
+                    returnStatement->value.get());
+
+            auto *negate =
+                multiply == nullptr
+                    ? nullptr
+                    : dynamic_cast<UnaryExpr *>(
+                          multiply->left.get());
+
+            bool valid =
+                multiply != nullptr &&
+                multiply->op == BinaryOperator::Multiply &&
+                negate != nullptr &&
+                negate->op == UnaryOperator::Negate;
+
+            passing &= expect(
+                valid,
+                "parser_unary_expression");
+        }
+
+        // TEST CASE 15 (boolean literal)
+        {
+            Program program = parseSource(
+                "function flag() -> bool { "
+                "return true; "
+                "}");
+
+            auto *function =
+                dynamic_cast<FunctionDecl *>(
+                    program.declarations[0].get());
+
+            auto *returnStatement =
+                dynamic_cast<ReturnStatement *>(
+                    function->body->statements[0].get());
+
+            auto *literal =
+                dynamic_cast<LiteralExpr *>(
+                    returnStatement->value.get());
+
+            bool valid =
+                literal != nullptr &&
+                literal->value == "true" &&
+                literal->type.kind == TypeKind::Bool;
+
+            passing &= expect(
+                valid,
+                "parser_boolean_literal");
+        }
+
+        // TEST CASE 16 (function calls)
+        {
+            Program program = parseSource(
+                "function main() -> integer { "
+                "return add(1, 2 * 3); "
+                "}");
+
+            auto *function =
+                dynamic_cast<FunctionDecl *>(
+                    program.declarations[0].get());
+
+            auto *returnStatement =
+                dynamic_cast<ReturnStatement *>(
+                    function->body->statements[0].get());
+
+            auto *call =
+                dynamic_cast<CallExpr *>(
+                    returnStatement->value.get());
+
+            auto *secondArgument =
+                call == nullptr ||
+                        call->arguments.size() < 2
+                    ? nullptr
+                    : dynamic_cast<BinaryExpr *>(
+                          call->arguments[1].get());
+
+            bool valid =
+                call != nullptr &&
+                call->name == "add" &&
+                call->arguments.size() == 2 &&
+                secondArgument != nullptr &&
+                secondArgument->op ==
+                    BinaryOperator::Multiply;
+
+            passing &= expect(
+                valid,
+                "parser_function_call");
+        }
+    }
+
     std::cout
         << "Parser Test Result: "
         << (passing ? "PASSED" : "FAILED")
