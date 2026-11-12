@@ -1,3 +1,4 @@
+#include <unordered_set>
 #include "semantic.hpp"
 
 // goes through the program and checks its declarations
@@ -8,8 +9,7 @@ bool SemanticAnalyser::analyse(const Program &program)
     symbols_ = SymbolTable();
     errors_.clear();
 
-    // go through every declaration stored in the program AST
-    // each declaration is stored as a pointer to the base Declaration class
+    // pass 1: register all functions and rulesets
     for (const std::unique_ptr<Declaration> &declaration : program.declarations)
     {
         // check if the current declaration is a normal function
@@ -37,15 +37,39 @@ bool SemanticAnalyser::analyse(const Program &program)
         }
     }
 
-    // go through declarations again to check function bodies
+    // pass 2: analyse function and ruleset bodies
+
+    // keep track of names already analysed
+    std::unordered_set<std::string> analysedNames;
+
     for (const std::unique_ptr<Declaration> &declaration : program.declarations)
     {
+        // check if this declaration is a function
         const FunctionDecl *function =
             dynamic_cast<const FunctionDecl *>(declaration.get());
 
         if (function != nullptr)
         {
-            analyseFunction(*function);
+            // only analyse the first function with this name
+            if (analysedNames.insert(function->name).second)
+            {
+                analyseFunction(*function);
+            }
+
+            continue;
+        }
+
+        // check if this declaration is a ruleset
+        const RulesetDecl *ruleset =
+            dynamic_cast<const RulesetDecl *>(declaration.get());
+
+        if (ruleset != nullptr)
+        {
+            // only analyse the first ruleset with this name
+            if (analysedNames.insert(ruleset->name).second)
+            {
+                analyseRuleset(*ruleset);
+            }
         }
     }
 
@@ -105,25 +129,23 @@ void SemanticAnalyser::registerRuleset(const RulesetDecl &ruleset)
 }
 
 // checks a function's parameters and body
+// analyses a function body
 void SemanticAnalyser::analyseFunction(const FunctionDecl &function)
 {
-    // remember what type this function should return
+    // remember the return type expected by this function
     currentReturnType_ = function.returnType;
 
-    // create a new scope for this function
+    // create a scope for the function's parameters and variables
     symbols_.enterScope();
 
-    // go through each parameter in the function
+    // add each parameter to the function scope
     for (const Parameter &parameter : function.parameters)
     {
-        // create a symbol representing the parameter
         Symbol symbol{
             SymbolKind::Variable,
             parameter.type,
             {}};
 
-        // add the parameter to the function's scope
-        // if the name already exists, report an error
         if (!symbols_.declare(parameter.name, symbol))
         {
             errors_.push_back(
@@ -131,21 +153,92 @@ void SemanticAnalyser::analyseFunction(const FunctionDecl &function)
         }
     }
 
-    // check the statements inside the function
-    analyseBlock(*function.body);
+    // analyse the function's statements
+    if (function.body != nullptr)
+    {
+        analyseBlock(*function.body, false);
 
-    // remove the function's scope when finished
+        // non-void functions must contain a return statement
+        if (function.returnType.kind != TypeKind::Void &&
+            !hasReturn(*function.body))
+        {
+            errors_.push_back(
+                "Missing return statement in function: '" +
+                function.name + "'");
+        }
+    }
+    else
+    {
+        // a function without a body cannot return a value
+        if (function.returnType.kind != TypeKind::Void)
+        {
+            errors_.push_back(
+                "Missing return statement in function: '" +
+                function.name + "'");
+        }
+    }
+
+    // remove the function scope
     symbols_.exitScope();
 }
 
-// goes through every statement inside a block
-void SemanticAnalyser::analyseBlock(const BlockStatement &block)
+// checks a ruleset's parameters and statements
+void SemanticAnalyser::analyseRuleset(const RulesetDecl &ruleset)
 {
-    // loop through each statement stored in the block
+    // remember the expected return type
+    currentReturnType_ = ruleset.returnType;
+
+    // create a scope for the ruleset parameters
+    symbols_.enterScope();
+
+    // add each parameter to the current scope
+    for (const Parameter &parameter : ruleset.parameters)
+    {
+        Symbol symbol{
+            SymbolKind::Variable,
+            parameter.type,
+            {}};
+
+        // report parameters with duplicate names
+        if (!symbols_.declare(parameter.name, symbol))
+        {
+            errors_.push_back(
+                "Duplicate parameter: '" + parameter.name + "'");
+        }
+    }
+
+    // check all statements inside the ruleset
+    if (ruleset.body != nullptr)
+    {
+        analyseBlock(*ruleset.body, false);
+    }
+
+    // remove the ruleset parameter scope
+    symbols_.exitScope();
+}
+
+// checks all statements inside a block
+// analyses the statements inside a block
+void SemanticAnalyser::analyseBlock(
+    const BlockStatement &block,
+    bool createScope)
+{
+    // create a new scope for nested blocks
+    if (createScope)
+    {
+        symbols_.enterScope();
+    }
+
+    // analyse every statement in the block
     for (const std::unique_ptr<Statement> &statement : block.statements)
     {
-        // check the current statement
         analyseStatement(*statement);
+    }
+
+    // remove the scope if this block created one
+    if (createScope)
+    {
+        symbols_.exitScope();
     }
 }
 
@@ -158,28 +251,56 @@ void SemanticAnalyser::analyseStatement(const Statement &statement)
 
     if (variable != nullptr)
     {
-        // check the initial value if one was provided
+        // start with the declared type
+        Type variableType = variable->type;
+
         if (variable->initializer != nullptr)
         {
+            // determine the initial value's type
             Type valueType =
                 analyseExpression(*variable->initializer);
 
-            // check if the value matches the declared type
-            if (valueType.kind != TypeKind::Void &&
-                valueType.kind != variable->type.kind)
+            // only infer a type if the expression is valid
+            if (variableType.kind == TypeKind::Void)
+            {
+                if (valueType.kind == TypeKind::Error ||
+                    valueType.kind == TypeKind::Void)
+                {
+                    errors_.push_back(
+                        "Cannot infer type for variable: '" +
+                        variable->name + "'");
+
+                    variableType = Type{TypeKind::Error, nullptr};
+                }
+                else
+                {
+                    variableType = valueType;
+                }
+            }
+            // check explicitly declared variable types
+            else if (valueType.kind != TypeKind::Error &&
+                     !sameType(valueType, variableType))
             {
                 errors_.push_back(
-                    "Type mismatch for variable: '" + variable->name + "'");
+                    "Type mismatch for variable: '" +
+                    variable->name + "'");
             }
         }
+        else if (variableType.kind == TypeKind::Void)
+        {
+            errors_.push_back(
+                "Cannot infer type for variable: '" +
+                variable->name + "'");
 
-        // create a symbol for the variable
+            variableType = Type{TypeKind::Error, nullptr};
+        }
+
+        // store the declared or inferred type
         Symbol symbol{
             SymbolKind::Variable,
-            variable->type,
+            variableType,
             {}};
 
-        // add the variable to the current scope
         if (!symbols_.declare(variable->name, symbol))
         {
             errors_.push_back(
@@ -188,7 +309,6 @@ void SemanticAnalyser::analyseStatement(const Statement &statement)
 
         return;
     }
-
     // 2. CHECK RETURN STATEMENTS
     const ReturnStatement *returnStatement =
         dynamic_cast<const ReturnStatement *>(&statement);
@@ -209,11 +329,10 @@ void SemanticAnalyser::analyseStatement(const Statement &statement)
                     "Void function cannot return a value");
             }
             // check if the returned type matches the function type
-            else if (returnType.kind != TypeKind::Void &&
-                     returnType.kind != currentReturnType_.kind)
+            else if (returnType.kind != TypeKind::Error &&
+                     !sameType(returnType, currentReturnType_))
             {
-                errors_.push_back(
-                    "Return type mismatch");
+                errors_.push_back("Return type mismatch");
             }
         }
         else
@@ -240,6 +359,18 @@ void SemanticAnalyser::analyseStatement(const Statement &statement)
         {
             analyseExpression(*expressionStatement->expression);
         }
+
+        return;
+    }
+
+    // 4. CHECK NESTED BLOCK STATEMENTS
+    const BlockStatement *block =
+        dynamic_cast<const BlockStatement *>(&statement);
+
+    if (block != nullptr)
+    {
+        // analyse all statements inside this nested block
+        analyseBlock(*block);
 
         return;
     }
@@ -275,7 +406,7 @@ Type SemanticAnalyser::analyseExpression(const Expression &expression)
             errors_.push_back(
                 "Undefined variable: '" + variable->name + "'");
 
-            return Type{TypeKind::Void};
+            return Type{TypeKind::Error, nullptr};
         }
 
         // make sure the name represents a variable
@@ -285,7 +416,7 @@ Type SemanticAnalyser::analyseExpression(const Expression &expression)
             errors_.push_back(
                 "Not a variable: '" + variable->name + "'");
 
-            return Type{TypeKind::Void};
+            return Type{TypeKind::Error, nullptr};
         }
 
         // return the variable's type from the symbol table
@@ -306,19 +437,17 @@ Type SemanticAnalyser::analyseExpression(const Expression &expression)
         Type rightType = analyseExpression(*binary->right);
 
         // stop if either side already has an error
-        if (leftType.kind == TypeKind::Void ||
-            rightType.kind == TypeKind::Void)
+        if (leftType.kind == TypeKind::Error ||
+            rightType.kind == TypeKind::Error)
         {
-            return Type{TypeKind::Void, nullptr};
+            return Type{TypeKind::Error, nullptr};
         }
 
         // both sides must have matching types
-        if (leftType.kind != rightType.kind)
+        if (!sameType(leftType, rightType))
         {
-            errors_.push_back(
-                "Binary expression has mismatched types");
-
-            return Type{TypeKind::Void, nullptr};
+            errors_.push_back("Binary expression has mismatched types");
+            return Type{TypeKind::Error, nullptr};
         }
 
         // check arithmetic operators: +, -, *, /
@@ -334,7 +463,7 @@ Type SemanticAnalyser::analyseExpression(const Expression &expression)
                 errors_.push_back(
                     "Arithmetic requires numeric types");
 
-                return Type{TypeKind::Void, nullptr};
+                return Type{TypeKind::Error, nullptr};
             }
 
             // arithmetic returns the same type as its operands
@@ -354,7 +483,7 @@ Type SemanticAnalyser::analyseExpression(const Expression &expression)
             }
 
             errors_.push_back("Unsupported equality operand type");
-            return Type{TypeKind::Void, nullptr};
+            return Type{TypeKind::Error, nullptr};
         }
 
         // check comparison operators: <, >, <=, >=
@@ -370,7 +499,7 @@ Type SemanticAnalyser::analyseExpression(const Expression &expression)
                 errors_.push_back(
                     "Comparison requires numeric types");
 
-                return Type{TypeKind::Void, nullptr};
+                return Type{TypeKind::Error, nullptr};
             }
 
             // comparisons return true or false
@@ -380,7 +509,7 @@ Type SemanticAnalyser::analyseExpression(const Expression &expression)
         // report any binary operator we have not implemented
         errors_.push_back("Unsupported binary operator");
 
-        return Type{TypeKind::Void, nullptr};
+        return Type{TypeKind::Error, nullptr};
     }
 
     // check if the expression is a unary operation
@@ -394,94 +523,32 @@ Type SemanticAnalyser::analyseExpression(const Expression &expression)
         Type operandType = analyseExpression(*unary->operand);
 
         // stop if the operand already has an error
-        if (operandType.kind == TypeKind::Void)
+        if (operandType.kind == TypeKind::Error)
         {
-            return Type{TypeKind::Void, nullptr};
+            return Type{TypeKind::Error, nullptr};
         }
 
         // check the negation operator (-)
         if (unary->op == UnaryOperator::Negate)
         {
-            // negation only works with integers and floats for now
+            // negation only works with integers and floats
             if (operandType.kind != TypeKind::Int &&
                 operandType.kind != TypeKind::Float)
             {
                 errors_.push_back(
                     "Negation requires a numeric type");
 
-                return Type{TypeKind::Void, nullptr};
+                return Type{TypeKind::Error, nullptr};
             }
 
             // negation returns the same type as the operand
             return operandType;
         }
 
-        // check if the expression is a function call
-        // examples: add(5, 10), calculate(x)
-        const CallExpr *call =
-            dynamic_cast<const CallExpr *>(&expression);
-
-        if (call != nullptr)
-        {
-            // find the function in the symbol table
-            const Symbol *symbol = symbols_.lookup(call->name);
-
-            // check if the function exists
-            if (symbol == nullptr)
-            {
-                errors_.push_back(
-                    "Undefined function: '" + call->name + "'");
-
-                return Type{TypeKind::Void, nullptr};
-            }
-
-            // make sure the name belongs to a function
-            if (symbol->kind != SymbolKind::Function)
-            {
-                errors_.push_back(
-                    "Not a function: '" + call->name + "'");
-
-                return Type{TypeKind::Void, nullptr};
-            }
-
-            // check the number of arguments
-            if (call->arguments.size() != symbol->parameterTypes.size())
-            {
-                errors_.push_back(
-                    "Incorrect number of arguments for function: '" +
-                    call->name + "'");
-
-                return Type{TypeKind::Void, nullptr};
-            }
-
-            // check each argument against its expected parameter type
-            for (std::size_t i = 0; i < call->arguments.size(); i++)
-            {
-                // determine the type of the current argument
-                Type argumentType =
-                    analyseExpression(*call->arguments[i]);
-
-                // get the type expected by the function
-                Type parameterType = symbol->parameterTypes[i];
-
-                // check if the argument type matches
-                if (argumentType.kind != TypeKind::Void &&
-                    argumentType.kind != parameterType.kind)
-                {
-                    errors_.push_back(
-                        "Argument type mismatch in function: '" +
-                        call->name + "'");
-                }
-            }
-
-            // return the function's declared return type
-            return symbol->type;
-        }
-
-        // report an operator we have not implemented
+        // report an unsupported unary operator
         errors_.push_back("Unsupported unary operator");
 
-        return Type{TypeKind::Void, nullptr};
+        return Type{TypeKind::Error, nullptr};
     }
 
     // check if the expression is a function call
@@ -500,7 +567,7 @@ Type SemanticAnalyser::analyseExpression(const Expression &expression)
             errors_.push_back(
                 "Undefined function: '" + call->name + "'");
 
-            return Type{TypeKind::Void, nullptr};
+            return Type{TypeKind::Error, nullptr};
         }
 
         // make sure the name belongs to a function
@@ -509,7 +576,7 @@ Type SemanticAnalyser::analyseExpression(const Expression &expression)
             errors_.push_back(
                 "Not a function: '" + call->name + "'");
 
-            return Type{TypeKind::Void, nullptr};
+            return Type{TypeKind::Error, nullptr};
         }
 
         // check the number of arguments
@@ -519,8 +586,11 @@ Type SemanticAnalyser::analyseExpression(const Expression &expression)
                 "Incorrect number of arguments for function: '" +
                 call->name + "'");
 
-            return Type{TypeKind::Void, nullptr};
+            return Type{TypeKind::Error, nullptr};
         }
+
+        // track whether any argument contains an error
+        bool hasError = false;
 
         // check each argument against its expected parameter type
         for (std::size_t i = 0; i < call->arguments.size(); i++)
@@ -532,14 +602,26 @@ Type SemanticAnalyser::analyseExpression(const Expression &expression)
             // get the type expected by the function
             Type parameterType = symbol->parameterTypes[i];
 
-            // check if the argument type matches
-            if (argumentType.kind != TypeKind::Void &&
-                argumentType.kind != parameterType.kind)
+            // check if the argument already contains an error
+            if (argumentType.kind == TypeKind::Error)
+            {
+                hasError = true;
+            }
+            // check if the argument type matches the parameter type
+            else if (!sameType(argumentType, parameterType))
             {
                 errors_.push_back(
                     "Argument type mismatch in function: '" +
                     call->name + "'");
+
+                hasError = true;
             }
+        }
+
+        // return an error if any argument was invalid
+        if (hasError)
+        {
+            return Type{TypeKind::Error, nullptr};
         }
 
         // return the function's declared return type
@@ -549,11 +631,71 @@ Type SemanticAnalyser::analyseExpression(const Expression &expression)
     // report expression types that are not implemented yet
     errors_.push_back("Unsupported expression");
 
-    return Type{TypeKind::Void};
+    return Type{TypeKind::Error, nullptr};
 }
 
 // allows other parts of the compiler to read semantic errors
 const std::vector<std::string> &SemanticAnalyser::getErrors() const
 {
     return errors_;
+}
+
+// compares two types, including field element types
+bool SemanticAnalyser::sameType(
+    const Type &left,
+    const Type &right) const
+{
+    // the main types must match
+    if (left.kind != right.kind)
+    {
+        return false;
+    }
+
+    // ordinary types are equal if their kinds match
+    if (left.kind != TypeKind::Field)
+    {
+        return true;
+    }
+
+    // fields must both have an element type
+    if (left.elementType == nullptr ||
+        right.elementType == nullptr)
+    {
+        return false;
+    }
+
+    // compare the types stored inside the fields
+    return sameType(*left.elementType, *right.elementType);
+}
+
+// checks whether a block contains a return statement
+bool SemanticAnalyser::hasReturn(const BlockStatement &block) const
+{
+    // go through every statement in the block
+    for (const std::unique_ptr<Statement> &statement : block.statements)
+    {
+        // check if this statement is a return
+        const ReturnStatement *returnStatement =
+            dynamic_cast<const ReturnStatement *>(statement.get());
+
+        if (returnStatement != nullptr)
+        {
+            return true;
+        }
+
+        // check for return statements inside nested blocks
+        const BlockStatement *nestedBlock =
+            dynamic_cast<const BlockStatement *>(statement.get());
+
+        if (nestedBlock != nullptr)
+        {
+            if (hasReturn(*nestedBlock))
+            {
+                return true;
+            }
+        }
+    }
+
+    // no return statement was found
+    return false;
 }

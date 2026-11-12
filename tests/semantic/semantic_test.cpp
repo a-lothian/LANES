@@ -123,6 +123,18 @@ std::unique_ptr<Statement> makeReturn(
     return statement;
 }
 
+// creates a field type
+Type makeFieldType(TypeKind elementKind)
+{
+    Type type;
+    type.kind = TypeKind::Field;
+    type.elementType =
+        std::make_shared<Type>(
+            Type{elementKind, nullptr});
+
+    return type;
+}
+
 // runs the semantic analyser and checks the expected result
 void runTest(
     const std::string &name,
@@ -359,6 +371,10 @@ int main()
         add->parameters.push_back(
             Parameter{"b", Type{TypeKind::Int, nullptr}});
 
+        // the function must return an integer
+        add->body->statements.push_back(
+            makeReturn(makeInt(10)));
+
         program.declarations.push_back(std::move(add));
 
         // create another function that calls add
@@ -524,6 +540,492 @@ int main()
         program.declarations.push_back(std::move(function));
 
         runTest("Invalid expression statement", program, false);
+    }
+
+    // TEST 19: Valid nested block
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("test");
+
+        // create an inner block
+        std::unique_ptr<BlockStatement> block =
+            std::make_unique<BlockStatement>();
+
+        block->statements.push_back(
+            makeLet("x", TypeKind::Int, makeInt(10)));
+
+        function->body->statements.push_back(std::move(block));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Valid nested block", program, true);
+    }
+
+    // TEST 20: Variable accessible inside nested block
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("test");
+
+        // declare x in the outer block
+        function->body->statements.push_back(
+            makeLet("x", TypeKind::Int, makeInt(10)));
+
+        // create an inner block
+        std::unique_ptr<BlockStatement> block =
+            std::make_unique<BlockStatement>();
+
+        // use x inside the inner block
+        block->statements.push_back(
+            makeLet("y", TypeKind::Int, makeVariable("x")));
+
+        function->body->statements.push_back(std::move(block));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Outer variable accessible in inner block", program, true);
+    }
+
+    // TEST 21: Variable inaccessible outside nested block
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("test");
+
+        std::unique_ptr<BlockStatement> block =
+            std::make_unique<BlockStatement>();
+
+        // declare x inside the inner block
+        block->statements.push_back(
+            makeLet("x", TypeKind::Int, makeInt(10)));
+
+        function->body->statements.push_back(std::move(block));
+
+        // try to use x outside the inner block
+        function->body->statements.push_back(
+            makeLet("y", TypeKind::Int, makeVariable("x")));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Inner variable inaccessible outside block", program, false);
+    }
+
+    // TEST 22: Valid variable shadowing
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("test");
+
+        // declare x in the outer block
+        function->body->statements.push_back(
+            makeLet("x", TypeKind::Int, makeInt(10)));
+
+        std::unique_ptr<BlockStatement> block =
+            std::make_unique<BlockStatement>();
+
+        // declare another x in the inner block
+        block->statements.push_back(
+            makeLet("x", TypeKind::Bool, makeBool(true)));
+
+        // use the inner x as a boolean
+        block->statements.push_back(
+            makeLet("y", TypeKind::Bool, makeVariable("x")));
+
+        function->body->statements.push_back(std::move(block));
+
+        // outside the inner block, x is still an integer
+        function->body->statements.push_back(
+            makeLet("z", TypeKind::Int, makeVariable("x")));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Valid variable shadowing", program, true);
+    }
+
+    // TEST 23: Valid inferred integer
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("test");
+
+        std::unique_ptr<LetStatement> variable =
+            std::make_unique<LetStatement>();
+
+        variable->name = "x";
+        variable->type = Type{TypeKind::Void, nullptr};
+        variable->initializer = makeInt(10);
+
+        function->body->statements.push_back(std::move(variable));
+
+        // check that x was inferred as Int
+        function->body->statements.push_back(
+            makeLet("y", TypeKind::Int, makeVariable("x")));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Valid inferred integer", program, true);
+    }
+
+    // TEST 24: Valid inferred boolean
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("test");
+
+        std::unique_ptr<LetStatement> variable =
+            std::make_unique<LetStatement>();
+
+        variable->name = "x";
+        variable->type = Type{TypeKind::Void, nullptr};
+        variable->initializer = makeBool(true);
+
+        function->body->statements.push_back(std::move(variable));
+
+        function->body->statements.push_back(
+            makeLet("y", TypeKind::Bool, makeVariable("x")));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Valid inferred boolean", program, true);
+    }
+
+    // TEST 25: Cannot infer type without an initializer
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("test");
+
+        std::unique_ptr<LetStatement> variable =
+            std::make_unique<LetStatement>();
+
+        variable->name = "x";
+        variable->type = Type{TypeKind::Void, nullptr};
+
+        function->body->statements.push_back(std::move(variable));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Missing type and initializer", program, false);
+    }
+
+    // TEST 26: Mismatched field element types
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("test");
+
+        // declare a function parameter of type field<i32>
+        function->parameters.push_back(
+            Parameter{"values", makeFieldType(TypeKind::Int)});
+
+        // try to assign field<i32> to field<f32>
+        std::unique_ptr<LetStatement> variable =
+            std::make_unique<LetStatement>();
+
+        variable->name = "result";
+        variable->type = makeFieldType(TypeKind::Float);
+        variable->initializer = makeVariable("values");
+
+        function->body->statements.push_back(std::move(variable));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Mismatched field types", program, false);
+    }
+
+    // TEST 27: Valid ruleset
+    {
+        Program program;
+
+        std::unique_ptr<RulesetDecl> ruleset =
+            std::make_unique<RulesetDecl>();
+
+        ruleset->name = "process";
+        ruleset->returnType = Type{TypeKind::Int, nullptr};
+        ruleset->body = std::make_unique<BlockStatement>();
+
+        ruleset->body->statements.push_back(
+            makeReturn(makeInt(10)));
+
+        program.declarations.push_back(std::move(ruleset));
+
+        runTest("Valid ruleset", program, true);
+    }
+
+    // TEST 28: Incorrect ruleset return type
+    {
+        Program program;
+
+        std::unique_ptr<RulesetDecl> ruleset =
+            std::make_unique<RulesetDecl>();
+
+        ruleset->name = "process";
+        ruleset->returnType = Type{TypeKind::Int, nullptr};
+        ruleset->body = std::make_unique<BlockStatement>();
+
+        ruleset->body->statements.push_back(
+            makeReturn(makeBool(true)));
+
+        program.declarations.push_back(std::move(ruleset));
+
+        runTest("Invalid ruleset return type", program, false);
+    }
+
+    // TEST 29: Duplicate ruleset declaration
+    {
+        Program program;
+
+        for (int i = 0; i < 2; i++)
+        {
+            std::unique_ptr<RulesetDecl> ruleset =
+                std::make_unique<RulesetDecl>();
+
+            ruleset->name = "process";
+            ruleset->returnType = Type{TypeKind::Void, nullptr};
+            ruleset->body = std::make_unique<BlockStatement>();
+
+            program.declarations.push_back(std::move(ruleset));
+        }
+
+        runTest("Duplicate ruleset", program, false);
+    }
+
+    // TEST 30: Duplicate function body is skipped
+    {
+        Program program;
+
+        // first declaration is valid
+        std::unique_ptr<FunctionDecl> first =
+            makeFunction("test");
+
+        program.declarations.push_back(std::move(first));
+
+        // second declaration has the same name
+        std::unique_ptr<FunctionDecl> second =
+            makeFunction("test");
+
+        // this body also contains a type mismatch
+        second->body->statements.push_back(
+            makeLet("x", TypeKind::Int, makeBool(true)));
+
+        program.declarations.push_back(std::move(second));
+
+        SemanticAnalyser analyser;
+        bool valid = analyser.analyse(program);
+
+        // expect only the duplicate declaration error
+        if (!valid && analyser.getErrors().size() == 1 &&
+            analyser.getErrors()[0] == "Duplicate declaration: 'test'")
+        {
+            std::cout << "\nTest: Duplicate function body skipped\nPASS\n";
+        }
+        else
+        {
+            std::cout << "\nTest: Duplicate function body skipped\nFAIL\n";
+        }
+
+        for (const std::string &error : analyser.getErrors())
+        {
+            std::cout << "  " << error << "\n";
+        }
+    }
+
+    // TEST 31: Invalid inferred variable
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("test");
+
+        std::unique_ptr<LetStatement> variable =
+            std::make_unique<LetStatement>();
+
+        variable->name = "x";
+        variable->type = Type{TypeKind::Void, nullptr};
+        variable->initializer = makeVariable("unknown");
+
+        function->body->statements.push_back(std::move(variable));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Invalid inferred variable", program, false);
+    }
+
+    // TEST 32: Valid inferred function return
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> helper =
+            makeFunction("helper");
+
+        helper->returnType = Type{TypeKind::Int, nullptr};
+        helper->body->statements.push_back(
+            makeReturn(makeInt(10)));
+
+        program.declarations.push_back(std::move(helper));
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("test");
+
+        std::unique_ptr<LetStatement> variable =
+            std::make_unique<LetStatement>();
+
+        variable->name = "x";
+        variable->type = Type{TypeKind::Void, nullptr};
+        variable->initializer = makeCall("helper");
+
+        function->body->statements.push_back(std::move(variable));
+
+        // x should have been inferred as Int
+        function->body->statements.push_back(
+            makeLet("y", TypeKind::Int, makeVariable("x")));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Valid inferred function return", program, true);
+    }
+
+    // TEST 33: Cannot infer from void function
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> helper =
+            makeFunction("helper");
+
+        program.declarations.push_back(std::move(helper));
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("test");
+
+        std::unique_ptr<LetStatement> variable =
+            std::make_unique<LetStatement>();
+
+        variable->name = "x";
+        variable->type = Type{TypeKind::Void, nullptr};
+        variable->initializer = makeCall("helper");
+
+        function->body->statements.push_back(std::move(variable));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Cannot infer from void function", program, false);
+    }
+
+    // TEST 34: Invalid function argument propagates error
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> helper =
+            makeFunction("helper");
+
+        helper->body->statements.push_back(
+            makeReturn(makeInt(10)));
+
+        helper->returnType = Type{TypeKind::Int, nullptr};
+        helper->parameters.push_back(
+            Parameter{"a", Type{TypeKind::Int, nullptr}});
+
+        program.declarations.push_back(std::move(helper));
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("test");
+
+        std::unique_ptr<CallExpr> call = makeCall("helper");
+        call->arguments.push_back(makeVariable("unknown"));
+
+        std::unique_ptr<LetStatement> variable =
+            std::make_unique<LetStatement>();
+
+        variable->name = "x";
+        variable->type = Type{TypeKind::Void, nullptr};
+        variable->initializer = std::move(call);
+
+        function->body->statements.push_back(std::move(variable));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Invalid function argument propagates error", program, false);
+    }
+
+    // TEST 35: Non-void function without a return
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("calculate");
+
+        function->returnType = Type{TypeKind::Int, nullptr};
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Missing return statement", program, false);
+    }
+
+    // TEST 36: Non-void function with a return
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("calculate");
+
+        function->returnType = Type{TypeKind::Int, nullptr};
+
+        function->body->statements.push_back(
+            makeReturn(makeInt(10)));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Valid return statement", program, true);
+    }
+
+    // TEST 37: Parameter redeclared in function body
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("calculate");
+
+        function->parameters.push_back(
+            Parameter{"x", Type{TypeKind::Int, nullptr}});
+
+        function->body->statements.push_back(
+            makeLet("x", TypeKind::Int, makeInt(10)));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Parameter redeclaration", program, false);
+    }
+
+    // TEST 38: Parameter shadowed inside nested block
+    {
+        Program program;
+
+        std::unique_ptr<FunctionDecl> function =
+            makeFunction("calculate");
+
+        function->parameters.push_back(
+            Parameter{"x", Type{TypeKind::Int, nullptr}});
+
+        std::unique_ptr<BlockStatement> nestedBlock =
+            std::make_unique<BlockStatement>();
+
+        nestedBlock->statements.push_back(
+            makeLet("x", TypeKind::Int, makeInt(10)));
+
+        function->body->statements.push_back(std::move(nestedBlock));
+
+        program.declarations.push_back(std::move(function));
+
+        runTest("Parameter shadowing in nested block", program, true);
     }
 
     return 0;

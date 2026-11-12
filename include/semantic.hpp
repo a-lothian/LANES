@@ -21,10 +21,14 @@ private:
     void registerFunction(const FunctionDecl &function);
     void registerRuleset(const RulesetDecl &ruleset);
     void analyseFunction(const FunctionDecl &function);
-    void analyseBlock(const BlockStatement &block);
+    void analyseBlock(const BlockStatement &block, bool createScope = true);
     void analyseStatement(const Statement &statement);
+    void analyseRuleset(const RulesetDecl &ruleset);
     Type analyseExpression(const Expression &expression);
     Type currentReturnType_{TypeKind::Void, nullptr};
+
+    bool sameType(const Type &left, const Type &right) const;
+    bool hasReturn(const BlockStatement &block) const;
 };
 
 #endif // SEMANTIC_H
