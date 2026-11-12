@@ -31,6 +31,20 @@ static bool expect(bool condition, const std::string &name)
     return condition;
 }
 
+static bool rejectsSource(const std::string &source)
+{
+    try
+    {
+        parseSource(source);
+    }
+    catch (const ParseError &)
+    {
+        return true;
+    }
+
+    return false;
+}
+
 bool run_parser_tests()
 {
     bool passing = true;
@@ -483,7 +497,7 @@ bool run_parser_tests()
             "parser_boolean_literal");
     }
 
-    // TEST CASE 16 (function calls)
+    // TEST CASE 15 (function calls)
     {
         Program program = parseSource(
             "function main() -> integer { "
@@ -520,6 +534,204 @@ bool run_parser_tests()
         passing &= expect(
             valid,
             "parser_function_call");
+    }
+
+    // TEST CASE 16 (representative complete LANES program)
+    {
+        Program program = parseSource(
+            "function add(x: integer, y: integer) -> integer { "
+            "return x + y; "
+            "} "
+            "ruleset scale(values: field<f32>, factor: f32) -> field<f32> { "
+            "return values * factor; "
+            "} "
+            "function main() -> integer { "
+            "let result: integer = add(4, 5); "
+            "return result; "
+            "}");
+
+        auto *add = dynamic_cast<FunctionDecl *>(
+            program.declarations[0].get());
+        auto *scale = dynamic_cast<RulesetDecl *>(
+            program.declarations[1].get());
+        auto *mainFunction = dynamic_cast<FunctionDecl *>(
+            program.declarations[2].get());
+
+        bool valid =
+            program.declarations.size() == 3 &&
+            add != nullptr &&
+            add->name == "add" &&
+            scale != nullptr &&
+            scale->name == "scale" &&
+            mainFunction != nullptr &&
+            mainFunction->name == "main" &&
+            mainFunction->body->statements.size() == 2;
+
+        passing &= expect(
+            valid,
+            "parser_complete_program");
+    }
+
+    // TEST CASE 17 (bare return statement)
+    {
+        Program program = parseSource(
+            "function stop() -> void { return; }");
+
+        auto *function = dynamic_cast<FunctionDecl *>(
+            program.declarations[0].get());
+        auto *returnStatement = dynamic_cast<ReturnStatement *>(
+            function->body->statements[0].get());
+
+        bool valid =
+            returnStatement != nullptr &&
+            returnStatement->value == nullptr;
+
+        passing &= expect(
+            valid,
+            "parser_empty_return");
+    }
+
+    // TEST CASE 18 (left associativity)
+    {
+        Program program = parseSource(
+            "function calc() -> integer { return 10 - 3 - 2; }");
+
+        auto *function = dynamic_cast<FunctionDecl *>(
+            program.declarations[0].get());
+        auto *returnStatement = dynamic_cast<ReturnStatement *>(
+            function->body->statements[0].get());
+        auto *outerSubtract = dynamic_cast<BinaryExpr *>(
+            returnStatement->value.get());
+        auto *innerSubtract =
+            outerSubtract == nullptr
+                ? nullptr
+                : dynamic_cast<BinaryExpr *>(
+                      outerSubtract->left.get());
+
+        bool valid =
+            outerSubtract != nullptr &&
+            outerSubtract->op == BinaryOperator::Subtract &&
+            innerSubtract != nullptr &&
+            innerSubtract->op == BinaryOperator::Subtract;
+
+        passing &= expect(
+            valid,
+            "parser_left_associativity");
+    }
+
+    // TEST CASE 19 (inequality operator)
+    {
+        Program program = parseSource(
+            "function compare(x: integer, y: integer) -> bool { "
+            "return x != y; "
+            "}");
+
+        auto *function = dynamic_cast<FunctionDecl *>(
+            program.declarations[0].get());
+        auto *returnStatement = dynamic_cast<ReturnStatement *>(
+            function->body->statements[0].get());
+        auto *inequality = dynamic_cast<BinaryExpr *>(
+            returnStatement->value.get());
+
+        bool valid =
+            inequality != nullptr &&
+            inequality->op == BinaryOperator::NotEqual;
+
+        passing &= expect(
+            valid,
+            "parser_inequality_expression");
+    }
+
+    // TEST CASE 20 (nested and zero-argument function calls)
+    {
+        Program program = parseSource(
+            "function main() -> integer { "
+            "return outer(inner(1), ping()); "
+            "}");
+
+        auto *function = dynamic_cast<FunctionDecl *>(
+            program.declarations[0].get());
+        auto *returnStatement = dynamic_cast<ReturnStatement *>(
+            function->body->statements[0].get());
+        auto *outer = dynamic_cast<CallExpr *>(
+            returnStatement->value.get());
+        auto *inner =
+            outer == nullptr || outer->arguments.empty()
+                ? nullptr
+                : dynamic_cast<CallExpr *>(
+                      outer->arguments[0].get());
+        auto *ping =
+            outer == nullptr || outer->arguments.size() < 2
+                ? nullptr
+                : dynamic_cast<CallExpr *>(
+                      outer->arguments[1].get());
+
+        bool valid =
+            outer != nullptr &&
+            outer->name == "outer" &&
+            outer->arguments.size() == 2 &&
+            inner != nullptr &&
+            inner->name == "inner" &&
+            inner->arguments.size() == 1 &&
+            ping != nullptr &&
+            ping->name == "ping" &&
+            ping->arguments.empty();
+
+        passing &= expect(
+            valid,
+            "parser_nested_function_calls");
+    }
+
+    // TEST CASE 21-27 (malformed syntax rejection)
+    passing &= expect(
+        rejectsSource("function main() -> mystery {}"),
+        "parser_rejects_unknown_type");
+
+    passing &= expect(
+        rejectsSource("function main(x integer) -> integer {}"),
+        "parser_rejects_malformed_parameter");
+
+    passing &= expect(
+        rejectsSource("function main() -> integer { return 1; "),
+        "parser_rejects_unclosed_block");
+
+    passing &= expect(
+        rejectsSource("function main() -> integer { return 1 +; }"),
+        "parser_rejects_missing_operand");
+
+    passing &= expect(
+        rejectsSource("function main() -> integer { return add(1,); }"),
+        "parser_rejects_trailing_call_comma");
+
+    passing &= expect(
+        rejectsSource("function main() -> integer { return @; }"),
+        "parser_rejects_invalid_token");
+
+    // ParseError should identify both the unexpected token and source location
+    {
+        bool validDiagnostic = false;
+
+        try
+        {
+            parseSource(
+                "function main() -> integer {\n"
+                "let x 5;\n"
+                "}");
+        }
+        catch (const ParseError &error)
+        {
+            std::string message = error.what();
+
+            validDiagnostic =
+                message.find("Expected '=' in variable declaration.") !=
+                    std::string::npos &&
+                message.find("Found '5'") != std::string::npos &&
+                message.find("line 2, column 7") != std::string::npos;
+        }
+
+        passing &= expect(
+            validDiagnostic,
+            "parser_error_diagnostic_location");
     }
 
     std::cout
