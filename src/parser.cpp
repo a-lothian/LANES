@@ -592,24 +592,23 @@ std::unique_ptr<Expression> Parser::parsePrimary()
         return expression;
     }
 
+    if (match(TokenType::KeywordTrue) || match(TokenType::KeywordFalse))
+    {
+        auto expression =
+            std::make_unique<LiteralExpr>();
+
+        expression->value = lexeme(previous());
+        expression->type =
+            Type{TypeKind::Bool, nullptr};
+
+        return expression;
+    }
+
     if (match(TokenType::Name))
     {
         const Token &nameToken = previous();
 
         std::string name = lexeme(nameToken);
-
-        // true and false currently tokenised as names by the lexer -> so the parser recognises them here
-        if (name == "true" || name == "false")
-        {
-            auto expression =
-                std::make_unique<LiteralExpr>();
-
-            expression->value = name;
-            expression->type =
-                Type{TypeKind::Bool, nullptr};
-
-            return expression;
-        }
 
         // name immediately followed by '(' for function calling
         if (match(TokenType::LeftBracket))
