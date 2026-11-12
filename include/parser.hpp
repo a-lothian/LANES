@@ -33,6 +33,7 @@ private:
 
     const Token &peek() const;
     const Token &previous() const;
+    bool checkNext(TokenType type) const; // looks one token past peek()
     bool isAtEnd() const;
     bool check(TokenType type) const;
     bool match(TokenType type);
@@ -52,6 +53,9 @@ private:
     std::unique_ptr<Statement> parseStatement();
     std::unique_ptr<Statement> parseLetStatement();
     std::unique_ptr<Statement> parseReturnStatement();
+    std::unique_ptr<Statement> parseIfStatement();
+    std::unique_ptr<Statement> parseWhileStatement();
+    std::unique_ptr<Statement> parseAssignmentStatement();
     std::unique_ptr<Statement> parseExpressionStatement();
 
     std::unique_ptr<Expression> parseExpression();

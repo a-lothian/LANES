@@ -43,6 +43,16 @@ const Token &Parser::previous() const
     return tokens_[current_ - 1];
 }
 
+bool Parser::checkNext(TokenType type) const
+{
+    if (isAtEnd() || current_ + 1 >= tokens_.size())
+    {
+        return false;
+    }
+
+    return tokens_[current_ + 1].type == type;
+}
+
 bool Parser::isAtEnd() const
 {
     return peek().type == TokenType::Eof;
@@ -320,22 +330,96 @@ std::unique_ptr<BlockStatement> Parser::parseBlock()
 
 std::unique_ptr<Statement> Parser::parseStatement()
 {
-    if (match(TokenType::KeywordLet))
+    switch (peek().type)
+{
+case TokenType::KeywordLet:
+    advance();
+    return parseLetStatement();
+
+case TokenType::KeywordReturn:
+    advance();
+    return parseReturnStatement();
+
+case TokenType::KeywordIf:
+    advance();
+    return parseIfStatement();
+
+case TokenType::KeywordWhile:
+    advance();
+    return parseWhileStatement();
+
+case TokenType::LeftBrace:
+    return parseBlock();   // parseBlock consumes the `{` so no advance here
+
+case TokenType::Name:
+    // `name = ...` is an assignment, anything else is an expression
+    if (checkNext(TokenType::Equal))
     {
-        return parseLetStatement();
+        return parseAssignmentStatement();
+    }
+    break;
+
+default:
+    break;
+}
+
+return parseExpressionStatement();
+}
+
+std::unique_ptr<Statement> Parser::parseIfStatement()
+{
+    auto statement = std::make_unique<IfStatement>();
+
+    statement->condition = parseExpression();
+    statement->thenBlock = parseBlock();
+
+    if (match(TokenType::KeywordElse))
+    {
+        // handle else / else if
+        if (match(TokenType::KeywordIf))
+        {
+            statement->elseBranch = parseIfStatement();
+        }
+        else
+        {
+            statement->elseBranch = parseBlock();
+        }
     }
 
-    if (match(TokenType::KeywordReturn))
-    {
-        return parseReturnStatement();
-    }
+    return statement;
+}
 
-    if (check(TokenType::LeftBrace))
-    {
-        return parseBlock();
-    }
+std::unique_ptr<Statement> Parser::parseWhileStatement()
+{
+    auto statement = std::make_unique<WhileStatement>();
 
-    return parseExpressionStatement();
+    statement->condition = parseExpression();
+    statement->body = parseBlock();
+
+    return statement;
+}
+
+std::unique_ptr<Statement> Parser::parseAssignmentStatement()
+{
+    const Token &nameToken =
+        consume(
+            TokenType::Name,
+            "Expected variable name in assignment.");
+
+    auto statement = std::make_unique<AssignmentStatement>();
+    statement->name = lexeme(nameToken);
+
+    consume(
+        TokenType::Equal,
+        "Expected '=' in assignment.");
+
+    statement->value = parseExpression();
+
+    consume(
+        TokenType::SemiColon,
+        "Expected ';' after assignment.");
+
+    return statement;
 }
 
 std::unique_ptr<Statement> Parser::parseLetStatement()

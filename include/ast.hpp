@@ -127,6 +127,30 @@ struct BlockStatement : Statement
     std::vector<std::unique_ptr<Statement>> statements;
 };
 
+// represents assignment to an existing variable
+struct AssignmentStatement : Statement
+{
+    std::string name;
+    std::unique_ptr<Expression> value;
+};
+
+// represents if statement
+struct IfStatement : Statement
+{
+    std::unique_ptr<Expression> condition;
+    std::unique_ptr<BlockStatement> thenBlock;
+
+    // optional for else or else if statments
+    std::unique_ptr<Statement> elseBranch;
+};
+
+// represents a loop
+struct WhileStatement : Statement
+{
+    std::unique_ptr<Expression> condition;
+    std::unique_ptr<BlockStatement> body;
+};
+
 // base structure for declarations
 struct Declaration
 {
