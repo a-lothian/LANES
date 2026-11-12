@@ -13,6 +13,7 @@ static std::vector<std::string> tests = {
     "singlechartokens.txt", "twochartokens.txt",
     "keywords.txt", "names.txt", "keyword_prefix.txt", "keyword_case.txt",
     "name_number_mix.txt", "keyword_expression.txt", "keyword_punctuation.txt",
+    "control_keywords.txt", "control_keyword_prefix.txt", "control_keyword_expression.txt",
     "whitespace_basic.txt", "whitespace_only.txt", "whitespace_splits_tokens.txt", 
     "whitespace_splits_operators.txt", "comment_basic.txt", "comment_at_eof.txt", 
     "comment_only.txt", "comment_lines.txt", "comment_slash.txt", 
