@@ -377,6 +377,100 @@ void SemanticAnalyser::analyseStatement(const Statement &statement)
 
         return;
     }
+
+    // 5. CHECK ASSIGNMENTS
+    const AssignmentStatement *assignment =
+        dynamic_cast<const AssignmentStatement *>(&statement);
+
+    if (assignment != nullptr)
+    {
+        // analyse expression to check for errors
+        Type valueType = analyseExpression(*assignment->value);
+
+        // the target must already exist
+        const Symbol *symbol = symbols_.lookup(assignment->name);
+
+        if (symbol == nullptr)
+        {
+            errors_.push_back(
+                "Undefined variable: '" + assignment->name + "'");
+
+            return;
+        }
+
+        // functions and rulesets cannot be assigned to
+        if (symbol->kind != SymbolKind::Variable)
+        {
+            errors_.push_back(
+                "Not a variable: '" + assignment->name + "'");
+
+            return;
+        }
+
+        // the value must match the variable's type
+        if (valueType.kind != TypeKind::Error &&
+            symbol->type.kind != TypeKind::Error &&
+            !sameType(valueType, symbol->type))
+        {
+            errors_.push_back(
+                "Type mismatch in assignment to: '" +
+                assignment->name + "'");
+        }
+
+        return;
+    }
+
+    // 6. CHECK IF STATEMENTS
+    const IfStatement *ifStatement =
+        dynamic_cast<const IfStatement *>(&statement);
+
+    if (ifStatement != nullptr)
+    {
+        analyseCondition(*ifStatement->condition, "if");
+
+        // each branch is a block, so it gets its own scope
+        analyseBlock(*ifStatement->thenBlock);
+
+        // the else branch is a block or another if (else if)
+        if (ifStatement->elseBranch != nullptr)
+        {
+            analyseStatement(*ifStatement->elseBranch);
+        }
+
+        return;
+    }
+
+    // 7. CHECK WHILE STATEMENTS
+    const WhileStatement *whileStatement =
+        dynamic_cast<const WhileStatement *>(&statement);
+
+    if (whileStatement != nullptr)
+    {
+        analyseCondition(*whileStatement->condition, "while");
+        analyseBlock(*whileStatement->body);
+
+        return;
+    }
+}
+
+// checks that an if / while condition is a boolean
+void SemanticAnalyser::analyseCondition(
+    const Expression &condition,
+    const std::string &statementName)
+{
+    Type conditionType = analyseExpression(condition);
+
+    // an error was already reported inside the condition
+    if (conditionType.kind == TypeKind::Error)
+    {
+        return;
+    }
+
+    if (conditionType.kind != TypeKind::Bool)
+    {
+        errors_.push_back(
+            "Condition of '" + statementName + "' must be a boolean");
+    }
 }
 
 // checks an expression, stores its type on the AST node and returns it
