@@ -45,6 +45,13 @@ static bool rejectsSource(const std::string &source)
     return false;
 }
 
+// statements of the first function in a parsed program
+static std::vector<std::unique_ptr<Statement>> &functionBody(Program &program)
+{
+    auto *function = dynamic_cast<FunctionDecl *>(program.declarations[0].get());
+    return function->body->statements;
+}
+
 bool run_parser_tests()
 {
     bool passing = true;
@@ -732,6 +739,121 @@ bool run_parser_tests()
         passing &= expect(
             validDiagnostic,
             "parser_error_diagnostic_location");
+    }
+
+    // TEST CASES 28-34 (control flow and assignment)
+    {
+        // if without else
+        Program program = parseSource(
+            "function f() -> integer { if a < b { return 1; } return 2; }");
+        auto &statements = functionBody(program);
+
+        auto *ifStatement = dynamic_cast<IfStatement *>(statements[0].get());
+        bool valid =
+            statements.size() == 2 &&
+            ifStatement != nullptr &&
+            dynamic_cast<BinaryExpr *>(ifStatement->condition.get()) != nullptr &&
+            ifStatement->thenBlock->statements.size() == 1 &&
+            ifStatement->elseBranch == nullptr;
+
+        passing &= expect(valid, "parser_if_statement");
+    }
+
+    {
+        // if with else
+        Program program = parseSource(
+            "function f() -> integer { if a { return 1; } else { return 2; } }");
+        auto &statements = functionBody(program);
+
+        auto *ifStatement = dynamic_cast<IfStatement *>(statements[0].get());
+        bool valid =
+            ifStatement != nullptr &&
+            dynamic_cast<VariableExpr *>(ifStatement->condition.get()) != nullptr &&
+            dynamic_cast<BlockStatement *>(ifStatement->elseBranch.get()) != nullptr;
+
+        passing &= expect(valid, "parser_if_else_statement");
+    }
+
+    {
+        // else if nests another IfStatement inside the else branch
+        Program program = parseSource(
+            "function f() -> integer { "
+            "if a { return 1; } else if b { return 2; } else { return 3; } }");
+        auto &statements = functionBody(program);
+
+        auto *outer = dynamic_cast<IfStatement *>(statements[0].get());
+        auto *inner = outer != nullptr
+                          ? dynamic_cast<IfStatement *>(outer->elseBranch.get())
+                          : nullptr;
+        bool valid =
+            inner != nullptr &&
+            dynamic_cast<BlockStatement *>(inner->elseBranch.get()) != nullptr;
+
+        passing &= expect(valid, "parser_else_if_chain");
+    }
+
+    {
+        // while loop containing an assignment
+        Program program = parseSource(
+            "function f() -> integer { let i = 0; while i < 10 { i = i + 1; } return i; }");
+        auto &statements = functionBody(program);
+
+        auto *loop = dynamic_cast<WhileStatement *>(statements[1].get());
+        auto *assignment = loop != nullptr && loop->body->statements.size() == 1
+                               ? dynamic_cast<AssignmentStatement *>(loop->body->statements[0].get())
+                               : nullptr;
+        bool valid =
+            loop != nullptr &&
+            dynamic_cast<BinaryExpr *>(loop->condition.get()) != nullptr &&
+            assignment != nullptr &&
+            assignment->name == "i" &&
+            dynamic_cast<BinaryExpr *>(assignment->value.get()) != nullptr;
+
+        passing &= expect(valid, "parser_while_and_assignment");
+    }
+
+    {
+        // "x = ..." is an assignment but "x == ..." and "x(...)" stay expression statements
+        Program program = parseSource(
+            "function f() -> integer { let x = 1; x = 2; x == 2; g(x); return x; }");
+        auto &statements = functionBody(program);
+
+        bool valid =
+            statements.size() == 5 &&
+            dynamic_cast<AssignmentStatement *>(statements[1].get()) != nullptr &&
+            dynamic_cast<ExpressionStatement *>(statements[2].get()) != nullptr &&
+            dynamic_cast<ExpressionStatement *>(statements[3].get()) != nullptr;
+
+        passing &= expect(valid, "parser_assignment_vs_expression_statement");
+    }
+
+    {
+        // brackets around a condition are just grouping, and statements nest
+        Program program = parseSource(
+            "function f() -> integer { while (a < b) { if (a == 1) { a = 2; } } return a; }");
+        auto &statements = functionBody(program);
+
+        auto *loop = dynamic_cast<WhileStatement *>(statements[0].get());
+        bool valid =
+            loop != nullptr &&
+            loop->body->statements.size() == 1 &&
+            dynamic_cast<IfStatement *>(loop->body->statements[0].get()) != nullptr;
+
+        passing &= expect(valid, "parser_bracketed_condition_and_nesting");
+    }
+
+    {
+        // malformed control flow is rejected
+        bool rejected =
+            rejectsSource("function f() -> integer { if a return 1; }") &&
+            rejectsSource("function f() -> integer { if { return 1; } }") &&
+            rejectsSource("function f() -> integer { while { } }") &&
+            rejectsSource("function f() -> integer { else { } }") &&
+            rejectsSource("function f() -> integer { if a { } else return 1; }") &&
+            rejectsSource("function f() -> integer { x = ; }") &&
+            rejectsSource("function f() -> integer { x = 1 }");
+
+        passing &= expect(rejected, "parser_rejects_malformed_control_flow");
     }
 
     std::cout
