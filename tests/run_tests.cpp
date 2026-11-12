@@ -3,6 +3,8 @@
 #include "parser/run_parser_test.h"
 #include "codegen/run_wat_test.h"
 #include "semantic/run_symbol_table_test.h"
+#include "semantic/run_control_flow_test.h"
+#include "semantic/run_type_annotation_test.h"
 
 int main()
 {
@@ -12,6 +14,8 @@ int main()
     passing &= run_parser_tests();
     passing &= run_wat_tests();
     passing &= runSymbolTableTests();
+    passing &= runControlFlowSemanticTests();
+    passing &= runTypeAnnotationTests();
 
     std::cout << "\nOverall Result: " << (passing ? "PASSED" : "FAILED") << "\n";
 

@@ -163,6 +163,72 @@ void runTest(
     }
 }
 
+// creates a block that returns 10, or an empty block
+std::unique_ptr<BlockStatement> makeReturnBlock(bool withReturn)
+{
+    std::unique_ptr<BlockStatement> block =
+        std::make_unique<BlockStatement>();
+
+    if (withReturn)
+    {
+        block->statements.push_back(makeReturn(makeInt(10)));
+    }
+
+    return block;
+}
+
+// creates "if true { thenBlock } else elseBranch" (elseBranch may be null)
+std::unique_ptr<Statement> makeIf(
+    std::unique_ptr<BlockStatement> thenBlock,
+    std::unique_ptr<Statement> elseBranch)
+{
+    std::unique_ptr<IfStatement> statement =
+        std::make_unique<IfStatement>();
+
+    statement->condition = makeBool(true);
+    statement->thenBlock = std::move(thenBlock);
+    statement->elseBranch = std::move(elseBranch);
+
+    return statement;
+}
+
+// creates "while true { body }"
+std::unique_ptr<Statement> makeWhile(std::unique_ptr<BlockStatement> body)
+{
+    std::unique_ptr<WhileStatement> statement =
+        std::make_unique<WhileStatement>();
+
+    statement->condition = makeBool(true);
+    statement->body = std::move(body);
+
+    return statement;
+}
+
+// creates an int function containing a single statement, then runs the analyser
+void runReturnPathTest(
+    const std::string &name,
+    std::unique_ptr<Statement> first,
+    std::unique_ptr<Statement> second,
+    bool expectedValid)
+{
+    Program program;
+
+    std::unique_ptr<FunctionDecl> function =
+        makeFunction("calculate");
+
+    function->returnType = Type{TypeKind::Int, nullptr};
+    function->body->statements.push_back(std::move(first));
+
+    if (second != nullptr)
+    {
+        function->body->statements.push_back(std::move(second));
+    }
+
+    program.declarations.push_back(std::move(function));
+
+    runTest(name, program, expectedValid);
+}
+
 int main()
 {
     // TEST 1: Valid integer declaration
@@ -1027,6 +1093,49 @@ int main()
 
         runTest("Parameter shadowing in nested block", program, true);
     }
+
+    // every path must return
+    runReturnPathTest(
+        "if/else both return",
+        makeIf(makeReturnBlock(true), makeReturnBlock(true)),
+        nullptr, true);
+
+    runReturnPathTest(
+        "if without else is not enough",
+        makeIf(makeReturnBlock(true), nullptr),
+        nullptr, false);
+
+    runReturnPathTest(
+        "only the then-branch returns",
+        makeIf(makeReturnBlock(true), makeReturnBlock(false)),
+        nullptr, false);
+
+    runReturnPathTest(
+        "return after a conditional return",
+        makeIf(makeReturnBlock(true), nullptr),
+        makeReturn(makeInt(10)), true);
+
+    runReturnPathTest(
+        "else-if chain ending in else",
+        makeIf(makeReturnBlock(true),
+               makeIf(makeReturnBlock(true), makeReturnBlock(true))),
+        nullptr, true);
+
+    runReturnPathTest(
+        "else-if chain without a final else",
+        makeIf(makeReturnBlock(true),
+               makeIf(makeReturnBlock(true), nullptr)),
+        nullptr, false);
+
+    runReturnPathTest(
+        "return only inside a while loop",
+        makeWhile(makeReturnBlock(true)),
+        nullptr, false);
+
+    runReturnPathTest(
+        "return after a while loop",
+        makeWhile(makeReturnBlock(false)),
+        makeReturn(makeInt(10)), true);
 
     return 0;
 }
