@@ -30,7 +30,9 @@ private:
     Type currentReturnType_{TypeKind::Void, nullptr};
 
     bool sameType(const Type &left, const Type &right) const;
-    bool hasReturn(const BlockStatement &block) const;
+    // true if every path through the statement ends in a return
+    bool alwaysReturns(const Statement &statement) const;
+    bool alwaysReturns(const BlockStatement &block) const;
 };
 
 #endif // SEMANTIC_H

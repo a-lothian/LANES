@@ -158,9 +158,9 @@ void SemanticAnalyser::analyseFunction(const FunctionDecl &function)
     {
         analyseBlock(*function.body, false);
 
-        // non-void functions must contain a return statement
+        // non-void functions must return on every path through the body
         if (function.returnType.kind != TypeKind::Void &&
-            !hasReturn(*function.body))
+            !alwaysReturns(*function.body))
         {
             errors_.push_back(
                 "Missing return statement in function: '" +
@@ -774,34 +774,49 @@ bool SemanticAnalyser::sameType(
     return sameType(*left.elementType, *right.elementType);
 }
 
-// checks whether a block contains a return statement
-bool SemanticAnalyser::hasReturn(const BlockStatement &block) const
+// checks whether every path through a statement ends in a return
+bool SemanticAnalyser::alwaysReturns(const Statement &statement) const
 {
-    // go through every statement in the block
+    if (dynamic_cast<const ReturnStatement *>(&statement) != nullptr)
+    {
+        return true;
+    }
+
+    // a block returns if any of its statements always returns
+    // anything after that statement can never run
+    const BlockStatement *block =
+        dynamic_cast<const BlockStatement *>(&statement);
+
+    if (block != nullptr)
+    {
+        return alwaysReturns(*block);
+    }
+
+    // an if returns only when it has an else and both branches always return
+    const IfStatement *ifStatement =
+        dynamic_cast<const IfStatement *>(&statement);
+
+    if (ifStatement != nullptr)
+    {
+        return ifStatement->thenBlock != nullptr &&
+               ifStatement->elseBranch != nullptr &&
+               alwaysReturns(*ifStatement->thenBlock) &&
+               alwaysReturns(*ifStatement->elseBranch);
+    }
+
+    return false;
+}
+
+// checks whether every path through a block ends in a return
+bool SemanticAnalyser::alwaysReturns(const BlockStatement &block) const
+{
     for (const std::unique_ptr<Statement> &statement : block.statements)
     {
-        // check if this statement is a return
-        const ReturnStatement *returnStatement =
-            dynamic_cast<const ReturnStatement *>(statement.get());
-
-        if (returnStatement != nullptr)
+        if (alwaysReturns(*statement))
         {
             return true;
         }
-
-        // check for return statements inside nested blocks
-        const BlockStatement *nestedBlock =
-            dynamic_cast<const BlockStatement *>(statement.get());
-
-        if (nestedBlock != nullptr)
-        {
-            if (hasReturn(*nestedBlock))
-            {
-                return true;
-            }
-        }
     }
 
-    // no return statement was found
     return false;
 }
