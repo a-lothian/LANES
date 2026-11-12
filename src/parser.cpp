@@ -15,6 +15,16 @@ Program Parser::parse()
 {
     Program program;
 
+    // a lexer ERROR token cannot form part of valid LANES syntax, so we're rejecting it before constructing a partial ast (malformed input)
+    // as a result it will produce a clearer indication rather than just a misleading (syntax) error
+    for (const Token &token : tokens_)
+    {
+        if (token.type == TokenType::ERROR)
+        {
+            fail(token, "Invalid token.");
+        }
+    }
+
     while (!isAtEnd())
     {
         program.declarations.push_back(parseDeclaration());
@@ -95,7 +105,53 @@ std::string Parser::lexeme(const Token &token) const
     const Token &token,
     const std::string &message) const
 {
-    throw ParseError(message, token.span);
+    std::size_t offset = token.span.begin;
+
+    if (offset > source_.size())
+    {
+        offset = source_.size();
+    }
+
+    std::size_t line = 1;
+    std::size_t column = 1;
+
+    for (std::size_t i = 0; i < offset; i++)
+    {
+        if (source_[i] == '\n')
+        {
+            line++;
+            column = 1;
+        }
+        else
+        {
+            column++;
+        }
+    }
+
+    std::string found;
+
+    if (token.type == TokenType::Eof)
+    {
+        found = "end of file";
+    }
+    else if (token.span.begin <= token.span.end &&
+             token.span.end <= source_.size())
+    {
+        found = "'" + source_.substr(token.span.begin, token.span.end - token.span.begin) +
+                "'";
+    }
+    else
+    {
+        found = tokenSymbol(token.type);
+    }
+
+    std::string diagnostic =
+        message +
+        " Found " + found +
+        " at line " + std::to_string(line) +
+        ", column " + std::to_string(column) + ".";
+
+    throw ParseError(diagnostic, token.span);
 }
 
 std::unique_ptr<Declaration> Parser::parseDeclaration()
