@@ -25,6 +25,7 @@ private:
     void analyseStatement(const Statement &statement);
     void analyseRuleset(const RulesetDecl &ruleset);
     Type analyseExpression(const Expression &expression);
+    Type inferExpressionType(const Expression &expression);
     Type currentReturnType_{TypeKind::Void, nullptr};
 
     bool sameType(const Type &left, const Type &right) const;

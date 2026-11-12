@@ -26,6 +26,7 @@ struct Type
 struct Expression
 {
     virtual ~Expression() = default;
+    mutable Type resolvedType{TypeKind::Error, nullptr};  // mutable allows this to altered by the semantic analyser even when passed in const
 };
 
 // base structure for all statements
@@ -101,8 +102,11 @@ struct Parameter
 struct LetStatement : Statement
 {
     std::string name;
-    Type type;
+    Type type; // as written in the source; Void means "infer it"
     std::unique_ptr<Expression> initializer;
+
+    // the variable's final type
+    mutable Type resolvedType{TypeKind::Error, nullptr};
 };
 
 // represents a return statement

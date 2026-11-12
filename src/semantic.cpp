@@ -295,6 +295,9 @@ void SemanticAnalyser::analyseStatement(const Statement &statement)
             variableType = Type{TypeKind::Error, nullptr};
         }
 
+        // record the final type on the AST so codegen can read it
+        variable->resolvedType = variableType;
+
         // store the declared or inferred type
         Symbol symbol{
             SymbolKind::Variable,
@@ -376,8 +379,17 @@ void SemanticAnalyser::analyseStatement(const Statement &statement)
     }
 }
 
-// checks an expression and returns its data type
+// checks an expression, stores its type on the AST node and returns it
+// every expression, including sub-expressions, passes through here
 Type SemanticAnalyser::analyseExpression(const Expression &expression)
+{
+    Type type = inferExpressionType(expression);
+    expression.resolvedType = type;
+    return type;
+}
+
+// checks an expression and returns its data type
+Type SemanticAnalyser::inferExpressionType(const Expression &expression)
 {
     // check if the expression is a literal value
     // examples: 10, 5.5, true
