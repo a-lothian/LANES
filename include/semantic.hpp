@@ -20,6 +20,11 @@ private:
 
     void registerFunction(const FunctionDecl &function);
     void registerRuleset(const RulesetDecl &ruleset);
+    void analyseFunction(const FunctionDecl &function);
+    void analyseBlock(const BlockStatement &block);
+    void analyseStatement(const Statement &statement);
+    Type analyseExpression(const Expression &expression);
+    Type currentReturnType_{TypeKind::Void, nullptr};
 };
 
 #endif // SEMANTIC_H
