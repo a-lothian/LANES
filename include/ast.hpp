@@ -11,7 +11,8 @@ enum class TypeKind
     Float,
     Bool,
     Void,
-    Field
+    Field,
+    Error
 };
 
 // a data type
