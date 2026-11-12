@@ -22,6 +22,11 @@ enum class TokenType {
     KeywordRuleset,
     KeywordLet,
     KeywordReturn,
+    KeywordIf,
+    KeywordElse,
+    KeywordWhile,
+    KeywordTrue,
+    KeywordFalse,
 
     // punctuation
     LeftBracket,

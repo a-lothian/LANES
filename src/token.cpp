@@ -9,6 +9,11 @@ std::string tokenSymbol(TokenType t) {
         case TokenType::KeywordRuleset: return "ruleset";
         case TokenType::KeywordLet: return "let";
         case TokenType::KeywordReturn: return "return";
+        case TokenType::KeywordIf: return "if";
+        case TokenType::KeywordElse: return "else";
+        case TokenType::KeywordWhile: return "while";
+        case TokenType::KeywordTrue: return "true";
+        case TokenType::KeywordFalse: return "false";
         case TokenType::LeftBracket: return "(";
         case TokenType::RightBracket: return ")";
         case TokenType::LeftBrace: return "{";
@@ -43,6 +48,11 @@ std::string tokenName(TokenType t) {
         case TokenType::KeywordRuleset: return "Keyword ruleset";
         case TokenType::KeywordLet: return "Keyword let";
         case TokenType::KeywordReturn: return "Keyword return";
+        case TokenType::KeywordIf: return "Keyword if";
+        case TokenType::KeywordElse: return "Keyword else";
+        case TokenType::KeywordWhile: return "Keyword while";
+        case TokenType::KeywordTrue: return "Keyword true";
+        case TokenType::KeywordFalse: return "Keyword false";
         case TokenType::LeftBracket: return "Left bracket";
         case TokenType::RightBracket: return "Right bracket";
         case TokenType::LeftBrace: return "Left brace";

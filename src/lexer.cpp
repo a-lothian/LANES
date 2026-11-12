@@ -108,6 +108,11 @@ const std::unordered_map<std::string_view, TokenType> keywords = {
     {"ruleset", TokenType::KeywordRuleset},
     {"let", TokenType::KeywordLet},
     {"return", TokenType::KeywordReturn},
+    {"if", TokenType::KeywordIf},
+    {"else", TokenType::KeywordElse},
+    {"while", TokenType::KeywordWhile},
+    {"true", TokenType::KeywordTrue},
+    {"false", TokenType::KeywordFalse},
 };
 
 Token Lexer::tokenizeKeyword(uint start) {
