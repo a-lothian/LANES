@@ -5,5 +5,10 @@ function add(x: integer, y: integer) -> integer{
 }
 
 // numbers!
-const float_result = 123.456 + 94.162558;
-let int_result = 4321 * 61;
+function float_result() -> float {
+    return 123.456 + 94.162558;
+}
+
+function int_result() -> integer {
+    return 4321 * 61;
+}

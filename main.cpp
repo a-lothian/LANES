@@ -1,25 +1,92 @@
 #include <iostream>
 #include <string>
-#include <vector>
-#include <file_reader.hpp>
+
+#include "codegen.hpp"
+#include "file_handler.hpp"
 #include "lexer.hpp"
+#include "parser.hpp"
+#include "semantic.hpp"
 
-int main()
+static std::string outputFilePath(const std::string &inputPath)
 {
-    // take input from input.txt, tokenize, and print result
-    FileReader reader;
-    reader.dumpFile("input.txt");
+    std::size_t dot = inputPath.find_last_of('.');
+    std::size_t slash = inputPath.find_last_of("/\\");
 
-    Lexer l(reader.document);
-    l.tokenize();
+    // only strip strip file extension
+    bool hasExtension = dot != std::string::npos && (slash == std::string::npos || dot > slash);
 
-    std::vector<Token> toks = l.get_tokens();
+    return (hasExtension ? inputPath.substr(0, dot) : inputPath) + ".wat";
+}
 
-    for (size_t k = 0; k < toks.size(); k++)
+static bool compile(const std::string &source, std::string &wat)
+{
+    Lexer lexer(source);
+    lexer.tokenize();
+
+    Program program;
+    try
     {
-        toks[k].print();
+        Parser parser(lexer.get_tokens(), source);
+        program = parser.parse();
     }
-    std::cout << std::endl;
+    catch (const ParseError &error)
+    {
+        std::cerr << "syntax error: " << error.what() << "\n";
+        return false;
+    }
+
+    SemanticAnalyser analyser;
+    if (!analyser.analyse(program))
+    {
+        for (const std::string &error : analyser.getErrors())
+        {
+            std::cerr << "error: " << error << "\n";
+        }
+        return false;
+    }
+
+    CodeGenerator generator;
+    if (!generator.generate(program))
+    {
+        for (const std::string &error : generator.getErrors())
+        {
+            std::cerr << "error: " << error << "\n";
+        }
+        return false;
+    }
+
+    wat = generator.getWat();
+    return true;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 2)
+    {
+        std::cerr << "usage: lanes <input file>\n";
+        return 1;
+    }
+
+    std::string inputPath = argv[1];
+
+    FileHandler files;
+    if (!files.readFile(inputPath))
+    {
+        std::cerr << files.getError() << "\n";
+        return 1;
+    }
+
+    std::string wat;
+    if (!compile(files.document, wat))
+    {
+        return 1;
+    }
+
+    if (!files.writeFile(outputFilePath(inputPath), wat))
+    {
+        std::cerr << files.getError() << "\n";
+        return 1;
+    }
 
     return 0;
 }

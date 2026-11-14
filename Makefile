@@ -22,8 +22,18 @@ $(BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+# usage: make run input.txt  (extra goals after `run` are passed to the compiler)
+RUN_ARGS := $(filter-out run,$(MAKECMDGOALS))
+
 run: $(TARGET)
-	./$(TARGET)
+	./$(TARGET) $(RUN_ARGS)
+
+# stop make treating the input file as a target to build
+ifeq ($(firstword $(MAKECMDGOALS)),run)
+.PHONY: $(RUN_ARGS)
+$(RUN_ARGS):
+	@:
+endif
 
 $(TEST_TARGET): $(TEST_SRCS) $(LIB_OBJS)
 	@mkdir -p $(BUILD)
