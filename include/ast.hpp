@@ -82,6 +82,12 @@ struct LiteralExpr : Expression
     Type type;
 };
 
+// represents a field literal, e.g. [1.0, 2.0, x * 2.0]
+struct FieldLiteralExpr : Expression
+{
+    std::vector<std::unique_ptr<Expression>> elements;
+};
+
 // represents a variable reference, e.g. result
 struct VariableExpr : Expression
 {

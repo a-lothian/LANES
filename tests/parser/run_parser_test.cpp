@@ -813,6 +813,45 @@ bool run_parser_tests()
         passing &= expect(validDiagnostic, "parser_field_length_diagnostic");
     }
 
+    // field literals hold expressions and can be nested inside other expressions
+    {
+        Program program = parseSource(
+            "function main() -> integer { "
+            "let x = [1.0, -2.0, y * 2.0]; "
+            "let z = f([true]); "
+            "return 0; "
+            "}");
+
+        auto &body = functionBody(program);
+        auto *x = dynamic_cast<LetStatement *>(body[0].get());
+        auto *xLiteral = x == nullptr ? nullptr : dynamic_cast<FieldLiteralExpr *>(x->initializer.get());
+        auto *z = dynamic_cast<LetStatement *>(body[1].get());
+        auto *call = z == nullptr ? nullptr : dynamic_cast<CallExpr *>(z->initializer.get());
+
+        bool valid =
+            xLiteral != nullptr &&
+            xLiteral->elements.size() == 3 &&
+            dynamic_cast<LiteralExpr *>(xLiteral->elements[0].get()) != nullptr &&
+            dynamic_cast<UnaryExpr *>(xLiteral->elements[1].get()) != nullptr &&
+            dynamic_cast<BinaryExpr *>(xLiteral->elements[2].get()) != nullptr &&
+            call != nullptr &&
+            call->arguments.size() == 1 &&
+            dynamic_cast<FieldLiteralExpr *>(call->arguments[0].get()) != nullptr;
+
+        passing &= expect(valid, "parser_field_literal");
+    }
+
+    {
+        bool rejected =
+            rejectsSource("function f() -> integer { let x = []; }") &&
+            rejectsSource("function f() -> integer { let x = [1,]; }") &&
+            rejectsSource("function f() -> integer { let x = [1 2]; }") &&
+            rejectsSource("function f() -> integer { let x = [1, 2; }") &&
+            rejectsSource("function f() -> integer { let x = [1, 2); }");
+
+        passing &= expect(rejected, "parser_rejects_malformed_field_literal");
+    }
+
     // TEST CASES 28-34 (control flow and assignment)
     {
         // if without else

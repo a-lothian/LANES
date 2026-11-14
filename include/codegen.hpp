@@ -48,6 +48,10 @@ private:
 
     void generateExpression(const Expression &expression);
     void generateLiteral(const LiteralExpr &literal);
+    void generateFieldLiteral(const FieldLiteralExpr &literal);
+
+    // every field element (i32, f32 or bool) takes 4 bytes
+    static constexpr std::uint32_t FIELD_ELEMENT_BYTES = 4;
     void generateUnary(const UnaryExpr &unary);
     void generateBinary(const BinaryExpr &binary);
 

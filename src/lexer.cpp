@@ -52,6 +52,8 @@ Token Lexer::next() {
         case ')': return Token(TokenType::RightBracket, start, pos_);
         case '{': return Token(TokenType::LeftBrace, start, pos_);
         case '}': return Token(TokenType::RightBrace, start, pos_);
+        case '[': return Token(TokenType::LeftSquareBracket, start, pos_);
+        case ']': return Token(TokenType::RightSquareBracket, start, pos_);
         case ',': return Token(TokenType::Comma, start, pos_);
         case ':': return Token(TokenType::Colon, start, pos_);
         case ';': return Token(TokenType::SemiColon, start, pos_);

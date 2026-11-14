@@ -88,9 +88,9 @@ bool CodeGenerator::toWatType(const Type &type, WatType &result, const std::stri
         addError("Void is not a value type (" + context + ")");
         return false;
 
-    case TypeKind::Field:
-        addError("Field types cannot be compiled yet (" + context + ")");
-        return false;
+    case TypeKind::Field: // the i32 address of the field's first element
+        result = WatType::I32;
+        return true;
 
     case TypeKind::Error:
         addError("Expression has no resolved type; run semantic analysis first (" + context + ")");
@@ -389,6 +389,12 @@ void CodeGenerator::generateExpression(const Expression &expression)
         return;
     }
 
+    if (const FieldLiteralExpr *field = dynamic_cast<const FieldLiteralExpr *>(&expression))
+    {
+        generateFieldLiteral(*field);
+        return;
+    }
+
     if (const VariableExpr *variable = dynamic_cast<const VariableExpr *>(&expression))
     {
         function_->localGet(lookupLocal(variable->name));
@@ -450,6 +456,72 @@ void CodeGenerator::generateLiteral(const LiteralExpr &literal)
     }
 
     addError("Unsupported literal type for '" + literal.value + "'");
+}
+
+// [a, b, c] reserves fixed block of memory at compile time
+// then at runtime we store each element into it
+//
+// i32.const <block> <a> f32.store
+// i32.const <block> <b> f32.store offset=4
+// i32.const <block> <c> f32.store offset=8
+// i32.const <block>
+//
+// every element is 4 bytes (i32, f32 or bool)
+// bools are stored as SIMD masks
+//  true = -1 (all bits 1), false = 0 (all 0)
+void CodeGenerator::generateFieldLiteral(const FieldLiteralExpr &literal)
+{
+    const Type &type = literal.resolvedType;
+
+    if (type.kind != TypeKind::Field || type.elementType == nullptr)
+    {
+        addError("Field literal has no resolved type; run semantic analysis first");
+        return;
+    }
+
+    std::uint32_t address = 0;
+    if (!memory_.reserve(std::uint64_t(type.length) * FIELD_ELEMENT_BYTES, address))
+    {
+        addError("Field literal of length " + std::to_string(type.length) +
+                 " does not fit in memory");
+        return;
+    }
+
+    TypeKind elementKind = type.elementType->kind;
+
+    for (std::size_t i = 0; i < literal.elements.size(); i++)
+    {
+        unsigned offset = static_cast<unsigned>(i * FIELD_ELEMENT_BYTES);
+
+        function_->i32Constant(static_cast<int>(address));
+
+        switch (elementKind)
+        {
+        case TypeKind::Int:
+            generateExpression(*literal.elements[i]);
+            function_->i32StoreToMemory(offset);
+            break;
+
+        case TypeKind::Float:
+            generateExpression(*literal.elements[i]);
+            function_->f32StoreToMemory(offset);
+            break;
+
+        case TypeKind::Bool:
+            // 0 - 1 = -1 (true), 0 - 0 = 0 (false)
+            function_->i32Constant(0);
+            generateExpression(*literal.elements[i]);
+            function_->i32Subtraction();
+            function_->i32StoreToMemory(offset);
+            break;
+
+        default:
+            addError("Unsupported field element type in code generation");
+            return;
+        }
+    }
+
+    function_->i32Constant(static_cast<int>(address));
 }
 
 void CodeGenerator::generateUnary(const UnaryExpr &unary)

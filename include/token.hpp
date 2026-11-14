@@ -33,6 +33,8 @@ enum class TokenType {
     RightBracket,
     LeftBrace,
     RightBrace,
+    LeftSquareBracket,
+    RightSquareBracket,
     Comma,
     Colon,
     SemiColon,

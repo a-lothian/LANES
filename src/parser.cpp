@@ -764,6 +764,26 @@ std::unique_ptr<Expression> Parser::parsePrimary()
         return expression;
     }
 
+    // field literal: one or more comma separated expressions in square brackets
+    // [] is rejected because a field needs at least one element
+    if (match(TokenType::LeftSquareBracket))
+    {
+        auto expression =
+            std::make_unique<FieldLiteralExpr>();
+
+        do
+        {
+            expression->elements.push_back(
+                parseExpression());
+        } while (match(TokenType::Comma));
+
+        consume(
+            TokenType::RightSquareBracket,
+            "Expected ']' after field elements.");
+
+        return expression;
+    }
+
     if (match(TokenType::LeftBracket))
     {
         std::unique_ptr<Expression> expression =

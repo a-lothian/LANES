@@ -18,6 +18,8 @@ std::string tokenSymbol(TokenType t) {
         case TokenType::RightBracket: return ")";
         case TokenType::LeftBrace: return "{";
         case TokenType::RightBrace: return "}";
+        case TokenType::LeftSquareBracket: return "[";
+        case TokenType::RightSquareBracket: return "]";
         case TokenType::Comma: return ",";
         case TokenType::Colon: return ":";
         case TokenType::SemiColon: return ";";
@@ -57,6 +59,8 @@ std::string tokenName(TokenType t) {
         case TokenType::RightBracket: return "Right bracket";
         case TokenType::LeftBrace: return "Left brace";
         case TokenType::RightBrace: return "Right brace";
+        case TokenType::LeftSquareBracket: return "Left square bracket";
+        case TokenType::RightSquareBracket: return "Right square bracket";
         case TokenType::Comma: return "Comma";
         case TokenType::Colon: return "Colon";
         case TokenType::SemiColon: return "Semicolon";

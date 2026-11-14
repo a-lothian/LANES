@@ -27,6 +27,7 @@ private:
     void analyseCondition(const Expression &condition, const std::string &statementName);
     Type analyseExpression(const Expression &expression);
     Type inferExpressionType(const Expression &expression);
+    Type analyseFieldLiteral(const FieldLiteralExpr &literal);
     Type currentReturnType_{TypeKind::Void, nullptr};
 
     bool sameType(const Type &left, const Type &right) const;

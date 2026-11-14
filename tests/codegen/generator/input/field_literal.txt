@@ -1,0 +1,7 @@
+// each literal gets its own fixed block of memory, 16 byte aligned
+function main(n: integer) -> integer {
+    let samples: field<f32, 5> = [1.0, -2.0, 3.5, -4.0, 0.25];
+    let ints = [n, n * 2, 3];
+    let mask = [true, false, n > 2];
+    return n;
+}

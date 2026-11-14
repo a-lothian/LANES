@@ -496,6 +496,16 @@ Type SemanticAnalyser::inferExpressionType(const Expression &expression)
         return literal->type;
     }
 
+    // check if the expression is a field literal
+    // examples: [1.0, 2.0], [x, x + 1, 0]
+    const FieldLiteralExpr *fieldLiteral =
+        dynamic_cast<const FieldLiteralExpr *>(&expression);
+
+    if (fieldLiteral != nullptr)
+    {
+        return analyseFieldLiteral(*fieldLiteral);
+    }
+
     // check if the expression is a variable reference
     // examples: x, y, result
     const VariableExpr *variable =
@@ -738,6 +748,57 @@ Type SemanticAnalyser::inferExpressionType(const Expression &expression)
     errors_.push_back("Unsupported expression");
 
     return Type{TypeKind::Error, nullptr};
+}
+
+// a field literal's type is field<element type, number of elements>
+// every element must have the same type, and that type must be i32, f32 or bool
+Type SemanticAnalyser::analyseFieldLiteral(const FieldLiteralExpr &literal)
+{
+    Type elementType{TypeKind::Error, nullptr};
+    bool hasError = false;
+
+    for (const std::unique_ptr<Expression> &element : literal.elements)
+    {
+        Type type = analyseExpression(*element);
+
+        // an error was already reported inside this element
+        if (type.kind == TypeKind::Error)
+        {
+            hasError = true;
+            continue;
+        }
+
+        if (type.kind != TypeKind::Int &&
+            type.kind != TypeKind::Float &&
+            type.kind != TypeKind::Bool)
+        {
+            errors_.push_back(
+                "Field elements must be integer, float or bool");
+            hasError = true;
+            continue;
+        }
+
+        // the first valid element decides the type the rest must match
+        if (elementType.kind == TypeKind::Error)
+        {
+            elementType = type;
+        }
+        else if (!sameType(type, elementType))
+        {
+            errors_.push_back(
+                "Field literal elements must all have the same type");
+            hasError = true;
+        }
+    }
+
+    if (hasError)
+    {
+        return Type{TypeKind::Error, nullptr};
+    }
+
+    Type fieldType{TypeKind::Field, std::make_shared<Type>(elementType)};
+    fieldType.length = static_cast<std::uint32_t>(literal.elements.size());
+    return fieldType;
 }
 
 // allows other parts of the compiler to read semantic errors
