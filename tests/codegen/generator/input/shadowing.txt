@@ -1,0 +1,8 @@
+function shadow(x: integer) -> integer {
+    let y = 10;
+    if x > 0 {
+        let y = x * 2;
+        return y;
+    }
+    return y;
+}

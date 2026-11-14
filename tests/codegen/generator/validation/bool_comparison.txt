@@ -1,0 +1,17 @@
+(module
+  (func $less (param $a i32) (param $b f32) (result i32)
+    (local $c i32)
+    (local $d i32)
+    f32.const 1.5
+    local.get $b
+    f32.lt
+    local.set $c
+    local.get $a
+    i32.const 3
+    i32.eq
+    local.set $d
+    local.get $c
+    return
+  )
+  (export "less" (func $less))
+)

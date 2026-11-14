@@ -1,0 +1,9 @@
+function sum_to(n: integer) -> integer {
+    let i = 0;
+    let acc = 0;
+    while i < n {
+        acc = acc + i;
+        i = i + 1;
+    }
+    return acc;
+}

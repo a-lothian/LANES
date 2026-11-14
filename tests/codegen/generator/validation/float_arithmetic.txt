@@ -1,0 +1,12 @@
+(module
+  (func $scale (param $x f32) (result f32)
+    local.get $x
+    f32.const 2.5
+    f32.mul
+    f32.const 1
+    f32.neg
+    f32.sub
+    return
+  )
+  (export "scale" (func $scale))
+)

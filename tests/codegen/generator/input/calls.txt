@@ -1,0 +1,12 @@
+function add(x: integer, y: integer) -> integer {
+    return x + y;
+}
+
+function ignore() -> void {
+    add(1, 2);
+}
+
+function main() -> integer {
+    ignore();
+    return add(add(1, 2), 3);
+}

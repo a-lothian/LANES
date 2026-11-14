@@ -1,0 +1,5 @@
+function less(a: integer, b: float) -> bool {
+    let c = 1.5 < b;
+    let d = a == 3;
+    return c;
+}

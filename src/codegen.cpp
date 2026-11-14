@@ -151,7 +151,6 @@ std::string CodeGenerator::lookupLocal(const std::string &name)
     return name;
 }
 
-// ---------------- functions ----------------
 
 void CodeGenerator::generateFunction(const FunctionDecl &function)
 {

@@ -1,0 +1,48 @@
+(module
+  (func $count (param $n i32) (result i32)
+    (local $total i32)
+    (local $i i32)
+    (local $j i32)
+    i32.const 0
+    local.set $total
+    i32.const 0
+    local.set $i
+    block $while_exit_0
+      loop $while_loop_0
+        local.get $i
+        local.get $n
+        i32.lt_s
+        i32.eqz
+        br_if $while_exit_0
+        i32.const 0
+        local.set $j
+        block $while_exit_1
+          loop $while_loop_1
+            local.get $j
+            local.get $n
+            i32.lt_s
+            i32.eqz
+            br_if $while_exit_1
+            local.get $total
+            i32.const 1
+            i32.add
+            local.set $total
+            local.get $j
+            i32.const 1
+            i32.add
+            local.set $j
+            br $while_loop_1
+          end
+        end
+        local.get $i
+        i32.const 1
+        i32.add
+        local.set $i
+        br $while_loop_0
+      end
+    end
+    local.get $total
+    return
+  )
+  (export "count" (func $count))
+)

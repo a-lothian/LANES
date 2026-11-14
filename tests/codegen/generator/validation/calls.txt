@@ -1,0 +1,26 @@
+(module
+  (func $add (param $x i32) (param $y i32) (result i32)
+    local.get $x
+    local.get $y
+    i32.add
+    return
+  )
+  (func $ignore
+    i32.const 1
+    i32.const 2
+    call $add
+    drop
+  )
+  (func $main (result i32)
+    call $ignore
+    i32.const 1
+    i32.const 2
+    call $add
+    i32.const 3
+    call $add
+    return
+  )
+  (export "add" (func $add))
+  (export "ignore" (func $ignore))
+  (export "main" (func $main))
+)
