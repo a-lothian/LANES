@@ -2,6 +2,7 @@
 #define LANES_PARSER_H
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -48,6 +49,7 @@ private:
     std::vector<Parameter> parseParameters();
     Parameter parseParameter();
     Type parseType();
+    std::uint32_t parseFieldLength();
 
     std::unique_ptr<BlockStatement> parseBlock();
     std::unique_ptr<Statement> parseStatement();

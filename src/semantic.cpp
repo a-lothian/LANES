@@ -770,6 +770,12 @@ bool SemanticAnalyser::sameType(
         return false;
     }
 
+    // fields of different lengths are different types
+    if (left.length != right.length)
+    {
+        return false;
+    }
+
     // compare the types stored inside the fields
     return sameType(*left.elementType, *right.elementType);
 }

@@ -105,10 +105,10 @@ bool run_parser_tests()
     }
 
     // TEST CASE 4
-    // parsing for "LANES-specific" field<T> type in a Ruleset
+    // parsing for "LANES-specific" field<T, length> type in a Ruleset
     {
-        Program program = parseSource("ruleset scale(x: field<f32>, k: f32) "
-                                      "-> field<f32> {}");
+        Program program = parseSource("ruleset scale(x: field<f32, 4>, k: f32) "
+                                      "-> field<f32, 4> {}");
         auto *ruleset = dynamic_cast<RulesetDecl *>(program.declarations[0].get());
 
         // checking that the ruleset has the correct parameter and return types
@@ -121,6 +121,8 @@ bool run_parser_tests()
                 nullptr &&
             ruleset->parameters[0].type.elementType->kind ==
                 TypeKind::Float &&
+            ruleset->parameters[0].type.length == 4 &&
+            ruleset->returnType.length == 4 &&
             ruleset->returnType.kind ==
                 TypeKind::Field &&
             ruleset->returnType.elementType !=
@@ -549,7 +551,7 @@ bool run_parser_tests()
             "function add(x: integer, y: integer) -> integer { "
             "return x + y; "
             "} "
-            "ruleset scale(values: field<f32>, factor: f32) -> field<f32> { "
+            "ruleset scale(values: field<f32, 8>, factor: f32) -> field<f32, 8> { "
             "return values * factor; "
             "} "
             "function main() -> integer { "
@@ -739,6 +741,76 @@ bool run_parser_tests()
         passing &= expect(
             validDiagnostic,
             "parser_error_diagnostic_location");
+    }
+
+    // field lengths: non-multiples of 4, nesting (nested fields are rejected later, in semantic analysis)
+    {
+        Program program = parseSource(
+            "function main(x: field<i32, 7>, y: field<field<bool, 2>, 3>) -> integer { "
+            "return 0; "
+            "}");
+
+        auto *function = dynamic_cast<FunctionDecl *>(program.declarations[0].get());
+        const Type *x = function == nullptr ? nullptr : &function->parameters[0].type;
+        const Type *y = function == nullptr ? nullptr : &function->parameters[1].type;
+
+        bool valid =
+            x != nullptr &&
+            x->kind == TypeKind::Field &&
+            x->length == 7 &&
+            x->elementType->kind == TypeKind::Int &&
+            y != nullptr &&
+            y->length == 3 &&
+            y->elementType->kind == TypeKind::Field &&
+            y->elementType->length == 2;
+
+        passing &= expect(valid, "parser_field_length");
+    }
+
+    // largest length that fits in 32 bits is accepted (memory limits are checked later)
+    {
+        Program program = parseSource(
+            "function f(x: field<f32, 4294967295>) -> integer { return 0; }");
+        auto *function = dynamic_cast<FunctionDecl *>(program.declarations[0].get());
+
+        passing &= expect(
+            function != nullptr &&
+                function->parameters[0].type.length == 4294967295u,
+            "parser_field_length_max");
+    }
+
+    // a field length must be a positive integer literal
+    {
+        bool rejected =
+            rejectsSource("function f(x: field<f32>) -> integer { return 0; }") &&
+            rejectsSource("function f(x: field<f32, 0>) -> integer { return 0; }") &&
+            rejectsSource("function f(x: field<f32, 4.0>) -> integer { return 0; }") &&
+            rejectsSource("function f(x: field<f32, -4>) -> integer { return 0; }") &&
+            rejectsSource("function f(x: field<f32, n>) -> integer { return 0; }") &&
+            rejectsSource("function f(x: field<f32, 4294967296>) -> integer { return 0; }") &&
+            rejectsSource("function f(x: field<f32, 99999999999999999999999>) -> integer { return 0; }") &&
+            rejectsSource("function f(x: field<f32, 4) -> integer { return 0; }");
+
+        passing &= expect(rejected, "parser_rejects_invalid_field_length");
+    }
+
+    // the error names the problem and where it is
+    {
+        bool validDiagnostic = false;
+
+        try
+        {
+            parseSource("function f(x: field<f32, 0>) -> integer { return 0; }");
+        }
+        catch (const ParseError &error)
+        {
+            std::string message = error.what();
+            validDiagnostic =
+                message.find("Field length must be at least 1.") != std::string::npos &&
+                message.find("line 1, column 26") != std::string::npos;
+        }
+
+        passing &= expect(validDiagnostic, "parser_field_length_diagnostic");
     }
 
     // TEST CASES 28-34 (control flow and assignment)

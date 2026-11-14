@@ -1,4 +1,6 @@
 #include "run_type_annotation_test.h"
+#include "lexer.hpp"
+#include "parser.hpp"
 #include "semantic.hpp"
 
 #include <iostream>
@@ -170,9 +172,31 @@ static bool testErrorIsRecorded()
     return ok;
 }
 
+// a field's length is part of its type: field<f32, 4> and field<f32, 5> do not match
+static bool testFieldLengthIsPartOfType()
+{
+    auto analyse = [](const std::string &source) {
+        Lexer lexer(source);
+        lexer.tokenize();
+        Parser parser(lexer.get_tokens(), source);
+        Program program = parser.parse();
+        SemanticAnalyser analyser;
+        return analyser.analyse(program);
+    };
+
+    std::string callee = "function g(x: field<f32, 4>) -> integer { return 0; } ";
+
+    bool sameLength = analyse(callee + "function f(y: field<f32, 4>) -> integer { return g(y); }");
+    bool otherLength = analyse(callee + "function f(y: field<f32, 5>) -> integer { return g(y); }");
+    bool otherElement = analyse(callee + "function f(y: field<i32, 4>) -> integer { return g(y); }");
+
+    return sameLength && !otherLength && !otherElement;
+}
+
 bool runTypeAnnotationTests()
 {
     bool passing = true;
+    passing &= report("field length is part of the type", testFieldLengthIsPartOfType());
     passing &= report("inferred let and arithmetic", testInferredLetAndArithmetic());
     passing &= report("comparison is bool", testComparisonIsBool());
     passing &= report("variable reference and call", testVariableAndCall());

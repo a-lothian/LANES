@@ -289,6 +289,7 @@ Type Parser::parseType()
         return Type{TypeKind::Void, nullptr};
     }
 
+    // field<element type, length>
     if (name == "field")
     {
         consume(
@@ -298,19 +299,56 @@ Type Parser::parseType()
         Type elementType = parseType();
 
         consume(
+            TokenType::Comma,
+            "Expected ',' and a length after field element type.");
+
+        std::uint32_t length = parseFieldLength();
+
+        consume(
             TokenType::GreaterThan,
-            "Expected '>' after field element type.");
+            "Expected '>' after field length.");
 
         Type fieldType;
 
         fieldType.kind = TypeKind::Field;
         fieldType.elementType =
             std::make_shared<Type>(std::move(elementType));
+        fieldType.length = length;
 
         return fieldType;
     }
 
     fail(typeToken, "Unknown type '" + name + "'.");
+}
+
+// the length in field<T, length> must be a positive integer literal known at compile time
+std::uint32_t Parser::parseFieldLength()
+{
+    const Token &lengthToken =
+        consume(TokenType::LiteralInt, "Expected an integer field length.");
+
+    // integer literals are digits only
+    unsigned long long length = 0;
+    try
+    {
+        length = std::stoull(lexeme(lengthToken));
+    }
+    catch (const std::out_of_range &)
+    {
+        fail(lengthToken, "Field length is too large.");
+    }
+
+    if (length > UINT32_MAX)
+    {
+        fail(lengthToken, "Field length is too large.");
+    }
+
+    if (length == 0)
+    {
+        fail(lengthToken, "Field length must be at least 1.");
+    }
+
+    return static_cast<std::uint32_t>(length);
 }
 
 std::unique_ptr<BlockStatement> Parser::parseBlock()

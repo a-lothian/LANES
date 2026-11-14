@@ -1,6 +1,7 @@
 #ifndef LANES_AST_H
 #define LANES_AST_H
 
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <memory>
@@ -20,6 +21,9 @@ struct Type
 {
     TypeKind kind;
     std::shared_ptr<Type> elementType;
+
+    // only for field types
+    std::uint32_t length = 0;
 };
 
 // base structure for all expressions
