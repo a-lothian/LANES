@@ -35,6 +35,19 @@ $(RUN_ARGS):
 	@:
 endif
 
+# usage: make install  (installs wat2wasm, which turns the .wat output into .wasm)
+install:
+	@if command -v wat2wasm >/dev/null 2>&1; then \
+		echo "wat2wasm is already installed"; \
+	elif command -v brew >/dev/null 2>&1; then \
+		brew install wabt; \
+	elif command -v apt-get >/dev/null 2>&1; then \
+		sudo apt-get install -y wabt; \
+	else \
+		echo "no supported package manager found: install wabt manually (https://github.com/WebAssembly/wabt)"; \
+		exit 1; \
+	fi
+
 $(TEST_TARGET): $(TEST_SRCS) $(LIB_OBJS)
 	@mkdir -p $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ $^
@@ -47,4 +60,4 @@ clean:
 
 -include $(OBJS:.o=.d)
 
-.PHONY: all run test clean
+.PHONY: all run test clean install
