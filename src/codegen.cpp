@@ -31,6 +31,13 @@ bool CodeGenerator::generate(const Program &program)
         addError("Unsupported declaration in code generation");
     }
 
+    // every field has its address so the total size is known
+    // exported so a JavaScript host can read and write field data
+    if (!memory_.empty())
+    {
+        module_.setMemory(memory_.pages());
+    }
+
     if (errors_.empty())
     {
         wat_ = module_.str();
@@ -44,6 +51,7 @@ void CodeGenerator::reset() {
     wat_.clear();
     errors_.clear();
     function_ = nullptr;
+    memory_ = MemoryLayout();
 }
 
 const std::string &CodeGenerator::getWat() const

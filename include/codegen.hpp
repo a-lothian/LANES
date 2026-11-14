@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "ast.hpp"
+#include "memory_layout.hpp"
 #include "wat_emitter.hpp"
 
 class CodeGenerator
@@ -32,6 +33,10 @@ private:
     std::vector<std::unordered_map<std::string, std::string>> scopes_;
     std::unordered_set<std::string> usedLocalNames_;
     int labelCounter_ = 0;
+
+    // fixed addresses for fields made at compiletime
+    // the module only gets a memory section if something was reserved
+    MemoryLayout memory_;
 
     void generateFunction(const FunctionDecl &function);
 

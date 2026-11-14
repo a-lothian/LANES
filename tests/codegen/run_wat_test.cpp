@@ -4,6 +4,7 @@
 #include <vector>
 #include "file_handler.hpp"
 #include "wat_emitter.hpp"
+#include "memory_layout.hpp"
 #include "run_wat_test.h"
 
 // each test manually builds a program and compares output against
@@ -94,6 +95,33 @@ static std::string buildUnclosedBlock() {
     return "no exception";
 }
 
+// reserves blocks at compile time and sizes a module's memory to fit them
+// e.g. 16 bytes = field<f32, 4>, 20 bytes = field<f32, 5>
+static std::string buildMemoryLayout() {
+    MemoryLayout layout;
+    std::string out;
+
+    auto reserve = [&](std::uint64_t bytes) {
+        std::uint32_t address = 0;
+        bool ok = layout.reserve(bytes, address);
+        out += "reserve " + std::to_string(bytes) + " -> " +
+               (ok ? std::to_string(address) : std::string("too large")) + "\n";
+    };
+
+    out += "empty: " + std::string(layout.empty() ? "yes" : "no") + "\n";
+    reserve(16);          // starts at 0
+    reserve(20);          // next 16 byte boundary
+    reserve(4);           // 16 + 20 = 36, rounded up to 48
+    reserve(70000);       // crosses into a second page
+    reserve(4294967296);  // 4gb on top of what is already reserved
+    out += "size: " + std::to_string(layout.size()) + "\n";
+    out += "pages: " + std::to_string(layout.pages()) + "\n";
+
+    WatModule m;
+    m.setMemory(layout.pages());
+    return out + m.str();
+}
+
 struct WatTest {
     std::string filename;
     std::string (*build)();
@@ -105,6 +133,7 @@ static std::vector<WatTest> tests = {
     {"loop.txt", buildLoop},
     {"module_sections_if_else.txt", buildModuleSectionsIfElse},
     {"unclosed_block.txt", buildUnclosedBlock},
+    {"memory_layout.txt", buildMemoryLayout},
 };
 
 static FileHandler reader;
