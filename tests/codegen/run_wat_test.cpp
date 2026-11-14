@@ -2,7 +2,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include "file_reader.hpp"
+#include "file_handler.hpp"
 #include "wat_emitter.hpp"
 #include "run_wat_test.h"
 
@@ -107,14 +107,14 @@ static std::vector<WatTest> tests = {
     {"unclosed_block.txt", buildUnclosedBlock},
 };
 
-static FileReader reader;
+static FileHandler reader;
 
 bool run_wat_tests() {
     bool passing = true;
     for (const WatTest &test : tests) {
         std::string test_output = test.build();
 
-        if (!reader.dumpFile(R"(tests/codegen/validation/)" + test.filename)) {
+        if (!reader.readFile(R"(tests/codegen/validation/)" + test.filename)) {
             std::cout << "FAILED: " << test.filename << "<------| (validation file missing)\n";
             passing = false;
             continue;

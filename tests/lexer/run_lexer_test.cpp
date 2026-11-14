@@ -3,7 +3,7 @@
 #include <vector>
 #include <sstream>
 #include "lexer.hpp"
-#include "file_reader.hpp"
+#include "file_handler.hpp"
 #include "run_lexer_test.h"
 
 static std::vector<std::string> tests = {
@@ -21,7 +21,7 @@ static std::vector<std::string> tests = {
     "comment_crlf.txt", "program.txt", "program_long.txt"
 };
 
-static FileReader reader;
+static FileHandler reader;
 static Lexer lexer;
 
 static std::string test_input;
@@ -43,7 +43,11 @@ bool run_lexer_tests() {
     for (std::string filename : tests) {
         clearData();
 
-        reader.dumpFile(R"(tests/lexer/input/)"  + filename);
+        if (!reader.readFile(R"(tests/lexer/input/)"  + filename)) {
+            std::cout << "FAILED: " << filename << "<------| (" << reader.getError() << ")\n";
+            passing = false;
+            continue;
+        }
         test_input = reader.document;
 
         lexer.tokenize(test_input);
@@ -51,7 +55,11 @@ bool run_lexer_tests() {
             ss << tokenSymbol(t.type);
         }
         test_output = ss.str();
-        reader.dumpFile(R"(tests/lexer/validation/)" + filename);
+        if (!reader.readFile(R"(tests/lexer/validation/)" + filename)) {
+            std::cout << "FAILED: " << filename << "<------| (" << reader.getError() << ")\n";
+            passing = false;
+            continue;
+        }
         test_validation = reader.document;
 
         bool test_passed = test_validation.compare(test_output) == 0;

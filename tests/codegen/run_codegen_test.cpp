@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 #include "codegen.hpp"
-#include "file_reader.hpp"
+#include "file_handler.hpp"
 #include "lexer.hpp"
 #include "parser.hpp"
 #include "semantic.hpp"
@@ -16,7 +16,7 @@ static std::vector<std::string> tests = {
     "float_arithmetic.txt", "shadowing.txt", "calls.txt",
     "bool_comparison.txt", "nested_loops.txt", "ruleset_unsupported.txt"};
 
-static FileReader reader;
+static FileHandler reader;
 
 // runs the whole compiler on a source string and returns the WAT, or the errors as text
 static std::string compile(const std::string &source)
@@ -64,7 +64,7 @@ bool run_codegen_tests()
     bool passing = true;
     for (const std::string &filename : tests)
     {
-        if (!reader.dumpFile(R"(tests/codegen/generator/input/)" + filename))
+        if (!reader.readFile(R"(tests/codegen/generator/input/)" + filename))
         {
             std::cout << "FAILED: " << filename << "<------| (input file missing)\n";
             passing = false;
@@ -72,7 +72,7 @@ bool run_codegen_tests()
         }
         std::string test_output = compile(reader.document);
 
-        if (!reader.dumpFile(R"(tests/codegen/generator/validation/)" + filename))
+        if (!reader.readFile(R"(tests/codegen/generator/validation/)" + filename))
         {
             std::cout << "FAILED: " << filename << "<------| (validation file missing)\n";
             passing = false;
