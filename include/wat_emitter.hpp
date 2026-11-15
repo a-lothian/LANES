@@ -87,6 +87,9 @@ public:
     void v128ConstantF32(const std::array<float, 4> &lanes);
     void vectorSplat(LaneType lanes);                       // scalar -> the same value in every lane
     void vectorExtractLane(LaneType lanes, unsigned lane);  // v128 -> the scalar in one lane (0-3)
+    // pops a, b -> a v128 built from 32 bit lanes of a (0-3) and b (4-7),
+    // e.g. {3, 2, 5, 4} gives [a3, a2, b1, b0]
+    void vectorShuffle(const std::array<unsigned, 4> &lanes);
 
     // arithmetic
     void vectorAddition(LaneType lanes);

@@ -225,6 +225,9 @@ static std::string buildSimd() {
     f.i32Constant(base); f.v128ConstantI32(i); f.vectorExtractLane(LaneType::I32x4, 3); storeI32(0);
     f.i32Constant(base); f.v128ConstantF32(a); f.vectorExtractLane(LaneType::F32x4, 1); f.f32StoreToMemory(4);
 
+    // slot 42: shuffle(i, j, {3, 2, 5, 4}) = [i3, i2, j1, j0]
+    nextSlot(); f.v128ConstantI32(i); f.v128ConstantI32(j); f.vectorShuffle({3, 2, 5, 4}); f.v128StoreToMemory();
+
     // result: lane 2 of a
     f.v128ConstantF32(a);
     f.vectorExtractLane(LaneType::F32x4, 2);
@@ -245,6 +248,18 @@ static std::string buildBadLane() {
     return "no exception";
 }
 
+// shuffle lanes are numbered 0-7 across both operands
+static std::string buildBadShuffle() {
+    WatModule m;
+    auto &f = m.addFunction("bad", {}, {});
+    try {
+        f.vectorShuffle({0, 1, 2, 8});
+    } catch (const std::logic_error &e) {
+        return e.what();
+    }
+    return "no exception";
+}
+
 struct WatTest {
     std::string filename;
     std::string (*build)();
@@ -259,6 +274,7 @@ static std::vector<WatTest> tests = {
     {"memory_layout.txt", buildMemoryLayout},
     {"simd.txt", buildSimd},
     {"simd_bad_lane.txt", buildBadLane},
+    {"simd_bad_shuffle.txt", buildBadShuffle},
 };
 
 static FileHandler reader;

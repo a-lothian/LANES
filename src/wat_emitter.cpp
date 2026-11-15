@@ -165,6 +165,18 @@ void WatFunction::vectorExtractLane(LaneType lanes, unsigned lane) {
     emit(laneName(lanes) + ".extract_lane " + std::to_string(lane));
 }
 
+// WAT only has a byte shuffle, so 32 bit lane k becomes bytes 4k .. 4k+3
+void WatFunction::vectorShuffle(const std::array<unsigned, 4>& lanes) {
+    std::string s = "i8x16.shuffle";
+    for (unsigned lane : lanes) {
+        if (lane > 7)
+            throw std::logic_error("vectorShuffle: lane " + std::to_string(lane) + " is out of range");
+        for (unsigned byte = 0; byte < 4; byte++)
+            s += " " + std::to_string(lane * 4 + byte);
+    }
+    emit(s);
+}
+
 void WatFunction::vectorAddition(LaneType lanes) { emit(laneName(lanes) + ".add"); }
 void WatFunction::vectorSubtraction(LaneType lanes) { emit(laneName(lanes) + ".sub"); }
 void WatFunction::vectorMultiplication(LaneType lanes) { emit(laneName(lanes) + ".mul"); }

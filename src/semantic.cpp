@@ -304,11 +304,72 @@ bool SemanticAnalyser::checkDeclarationName(const std::string &name)
 
 bool SemanticAnalyser::isBuiltin(const std::string &name)
 {
-    return name == "print";
+    return name == "print" || name == "length" || isReduction(name);
+}
+
+// reductions combine every element of a field into one uniform
+bool SemanticAnalyser::isReduction(const std::string &name)
+{
+    return name == "sum" || name == "min_of" || name == "max_of" ||
+           name == "any" || name == "all";
 }
 
 Type SemanticAnalyser::analyseBuiltinCall(const CallExpr &call)
 {
+    // length(field) -> integer: the length is part of the type, so this is a constant
+    // reductions for rulsewts:
+    //   sum, min_of, max_of: field of integers or floats -> the element type
+    //   any, all:            field of bools -> bool
+    if (call.name == "length" || isReduction(call.name))
+    {
+        if (call.arguments.size() != 1)
+        {
+            errors_.push_back(
+                "Incorrect number of arguments for function: '" + call.name + "'");
+            return Type{TypeKind::Error, nullptr};
+        }
+
+        Type argumentType = analyseExpression(*call.arguments[0]);
+        if (argumentType.kind == TypeKind::Error)
+        {
+            return Type{TypeKind::Error, nullptr};
+        }
+
+        if (argumentType.kind != TypeKind::Field || argumentType.elementType == nullptr)
+        {
+            errors_.push_back("'" + call.name + "' requires a field argument");
+            return Type{TypeKind::Error, nullptr};
+        }
+
+        if (call.name == "length")
+        {
+            return Type{TypeKind::Int, nullptr};
+        }
+
+        if (!inRuleset_)
+        {
+            errors_.push_back("Reductions are only allowed in rulesets: '" + call.name + "'");
+            return Type{TypeKind::Error, nullptr};
+        }
+
+        TypeKind element = argumentType.elementType->kind;
+        bool logical = call.name == "any" || call.name == "all";
+
+        if (logical && element != TypeKind::Bool)
+        {
+            errors_.push_back("'" + call.name + "' requires a field of bools");
+            return Type{TypeKind::Error, nullptr};
+        }
+
+        if (!logical && element != TypeKind::Int && element != TypeKind::Float)
+        {
+            errors_.push_back("'" + call.name + "' requires a field of integers or floats");
+            return Type{TypeKind::Error, nullptr};
+        }
+
+        return Type{element, nullptr};
+    }
+
     if (call.name == "print")
     {
         if (call.arguments.size() != 1)

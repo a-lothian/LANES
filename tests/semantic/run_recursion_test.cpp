@@ -85,9 +85,9 @@ bool runRecursionTests()
     passing &= accepts(
         "recursive function calls a function that uses fields",
         "function make() -> field<integer, 2> { return [1, 2]; } "
-        "function length() -> integer { let a = make(); return 2; } "
+        "function size() -> integer { let a = make(); return 2; } "
         "function count(n: integer) -> integer { "
-        "  if n == 0 { return length(); } "
+        "  if n == 0 { return size(); } "
         "  return count(n - 1); "
         "}");
 

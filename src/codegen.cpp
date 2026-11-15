@@ -1,6 +1,8 @@
 #include "codegen.hpp"
 
 #include <algorithm>
+#include <functional>
+#include <limits>
 #include <stdexcept>
 
 static bool assignsTo(const Statement &statement, const std::string &name);
@@ -194,7 +196,15 @@ std::string CodeGenerator::lookupLocal(const std::string &name)
 }
 
 
+// reductions combine every element of a field into one uniform
+static bool isReductionName(const std::string &name)
+{
+    return name == "sum" || name == "min_of" || name == "max_of" ||
+           name == "any" || name == "all";
+}
+
 // true if the expression contains an element-wise field operation (a + b, -a, a < 2.0)
+// or a reduction
 static bool usesFieldOperations(const Expression &expression)
 {
     if (const BinaryExpr *binary = dynamic_cast<const BinaryExpr *>(&expression))
@@ -211,6 +221,11 @@ static bool usesFieldOperations(const Expression &expression)
 
     if (const CallExpr *call = dynamic_cast<const CallExpr *>(&expression))
     {
+        if (isReductionName(call->name))
+        {
+            return true;
+        }
+
         for (const std::unique_ptr<Expression> &argument : call->arguments)
         {
             if (usesFieldOperations(*argument))
@@ -233,6 +248,124 @@ static bool usesFieldOperations(const Expression &expression)
     }
 
     return false;
+}
+
+// the expressions directly inside a simple statement (let, assignment, expression, return)
+static const Expression *statementExpression(const Statement &statement)
+{
+    if (const LetStatement *let = dynamic_cast<const LetStatement *>(&statement))
+    {
+        return let->initializer.get();
+    }
+    if (const AssignmentStatement *assignment = dynamic_cast<const AssignmentStatement *>(&statement))
+    {
+        return assignment->value.get();
+    }
+    if (const ExpressionStatement *expression = dynamic_cast<const ExpressionStatement *>(&statement))
+    {
+        return expression->expression.get();
+    }
+    if (const ReturnStatement *returnStatement = dynamic_cast<const ReturnStatement *>(&statement))
+    {
+        return returnStatement->value.get();
+    }
+    return nullptr;
+}
+
+// a let, assignment, expression or return whose value is not a field
+static bool isScalarStatement(const Statement &statement)
+{
+    if (const LetStatement *let = dynamic_cast<const LetStatement *>(&statement))
+    {
+        return let->resolvedType.kind != TypeKind::Field;
+    }
+
+    bool simple = dynamic_cast<const AssignmentStatement *>(&statement) != nullptr ||
+                  dynamic_cast<const ExpressionStatement *>(&statement) != nullptr ||
+                  dynamic_cast<const ReturnStatement *>(&statement) != nullptr;
+    if (!simple)
+    {
+        return false;
+    }
+
+    const Expression *expression = statementExpression(statement);
+    return expression == nullptr || expression->resolvedType.kind != TypeKind::Field;
+}
+
+// visits an expression and everything inside it
+static void visitExpression(const Expression &expression,
+                            const std::function<void(const Expression &)> &visit)
+{
+    visit(expression);
+
+    if (const BinaryExpr *binary = dynamic_cast<const BinaryExpr *>(&expression))
+    {
+        visitExpression(*binary->left, visit);
+        visitExpression(*binary->right, visit);
+    }
+    else if (const UnaryExpr *unary = dynamic_cast<const UnaryExpr *>(&expression))
+    {
+        visitExpression(*unary->operand, visit);
+    }
+    else if (const CallExpr *call = dynamic_cast<const CallExpr *>(&expression))
+    {
+        for (const std::unique_ptr<Expression> &argument : call->arguments)
+        {
+            visitExpression(*argument, visit);
+        }
+    }
+    else if (const FieldLiteralExpr *literal = dynamic_cast<const FieldLiteralExpr *>(&expression))
+    {
+        for (const std::unique_ptr<Expression> &element : literal->elements)
+        {
+            visitExpression(*element, visit);
+        }
+    }
+}
+
+static bool containsReduction(const Expression &expression)
+{
+    bool found = false;
+    visitExpression(expression, [&](const Expression &inner) {
+        const CallExpr *call = dynamic_cast<const CallExpr *>(&inner);
+        found = found || (call != nullptr && isReductionName(call->name));
+    });
+    return found;
+}
+
+static bool containsReduction(const Statement &statement)
+{
+    const Expression *expression = statementExpression(statement);
+    return expression != nullptr && containsReduction(*expression);
+}
+
+// the reductions in a statement, outermost first (nested ones are rejected later,
+// when the outer argument's uniforms are prepared)
+static void forEachReduction(const Statement &statement, std::vector<const CallExpr *> &reductions)
+{
+    const Expression *expression = statementExpression(statement);
+    if (expression == nullptr)
+    {
+        return;
+    }
+
+    visitExpression(*expression, [&](const Expression &inner) {
+        const CallExpr *call = dynamic_cast<const CallExpr *>(&inner);
+        if (call != nullptr && isReductionName(call->name))
+        {
+            reductions.push_back(call);
+        }
+    });
+}
+
+static void forEachVariable(const Expression &expression, std::vector<const VariableExpr *> &variables)
+{
+    visitExpression(expression, [&](const Expression &inner) {
+        if (const VariableExpr *variable = dynamic_cast<const VariableExpr *>(&inner))
+        {
+            variables.push_back(variable);
+        }
+    });
 }
 
 static bool usesFieldOperations(const Statement &statement)
@@ -354,6 +487,12 @@ std::string CodeGenerator::parameterChunk(const std::string &parameter)
 //
 // scalar statements run before the loop in order, so a uniform used by a field
 // statement is splatted with its value at that point in the body
+//
+// reductions (sum, min_of, max_of, any, all) are only known once the loop has seen
+// every chunk, so the body is split at the first scalar statement that uses one:
+//   prefix: as above, before and inside the loop
+//   tail:   scalar statements only, generated after the loop in order, where each
+//           reduction reads the result its accumulator produced
 void CodeGenerator::generateVectorisedRuleset(const std::string &name,
                                               const std::vector<Parameter> &parameters,
                                               const Type &returnType,
@@ -371,7 +510,6 @@ void CodeGenerator::generateVectorisedRuleset(const std::string &name,
         }
     }
 
-    const ReturnStatement *finalReturn = nullptr;
     if (returnType.kind == TypeKind::Field)
     {
         checkVectorLength(returnType.length);
@@ -382,12 +520,26 @@ void CodeGenerator::generateVectorisedRuleset(const std::string &name,
         }
     }
 
-    // pass 1: everything that happens once, before the loop
-    std::size_t errorsBefore = errors_.size();
-    for (std::size_t i = 0; i < body.statements.size(); i++)
+    const std::size_t count = body.statements.size();
+    std::size_t tailStart = count;
+    for (std::size_t i = 0; i < count; i++)
     {
-        bool isLast = i + 1 == body.statements.size();
-        if (!prepareVectorStatement(*body.statements[i], isLast))
+        if (isScalarStatement(*body.statements[i]) && containsReduction(*body.statements[i]))
+        {
+            tailStart = i;
+            break;
+        }
+    }
+
+    // pass 1: everything that happens once, before the loop
+    const ReturnStatement *finalReturn = nullptr;
+    std::size_t errorsBefore = errors_.size();
+    for (std::size_t i = 0; i < count; i++)
+    {
+        bool isLast = i + 1 == count;
+        bool prepared = i < tailStart ? prepareVectorStatement(*body.statements[i], isLast)
+                                      : prepareTailStatement(*body.statements[i], isLast);
+        if (!prepared)
         {
             break;
         }
@@ -410,6 +562,14 @@ void CodeGenerator::generateVectorisedRuleset(const std::string &name,
         const std::string &offset = vector_.offset;
         std::uint32_t end = (vector_.length + 3) / 4 * CHUNK_BYTES;
 
+        // when the length is not a multiple of 4, the last chunk has padding lanes,
+        // which reductions must ignore. lane k is real if offset + 4k < length * 4
+        std::string valid;
+        if (!vector_.reductions.empty() && vector_.length % 4 != 0)
+        {
+            valid = newLocal("valid", WatType::V128);
+        }
+
         function_->beginLoop("chunk_loop");
 
         for (const auto &[parameter, chunk] : vector_.parameterChunks)
@@ -421,9 +581,22 @@ void CodeGenerator::generateVectorisedRuleset(const std::string &name,
             function_->localSet(chunk);
         }
 
-        for (const std::unique_ptr<Statement> &statement : body.statements)
+        if (!valid.empty())
         {
-            const ReturnStatement *returnStatement = dynamic_cast<const ReturnStatement *>(statement.get());
+            int bytes = static_cast<int>(vector_.length * FIELD_ELEMENT_BYTES);
+            function_->v128ConstantI32({0, 4, 8, 12});
+            function_->localGet(offset);
+            function_->vectorSplat(LaneType::I32x4);
+            function_->vectorAddition(LaneType::I32x4);
+            function_->v128ConstantI32({bytes, bytes, bytes, bytes});
+            function_->vectorLessThan(LaneType::I32x4);
+            function_->localSet(valid);
+        }
+
+        for (std::size_t i = 0; i < tailStart; i++)
+        {
+            const Statement &statement = *body.statements[i];
+            const ReturnStatement *returnStatement = dynamic_cast<const ReturnStatement *>(&statement);
             if (returnStatement != nullptr && returnType.kind == TypeKind::Field)
             {
                 function_->i32Constant(static_cast<int>(vector_.result));
@@ -434,7 +607,22 @@ void CodeGenerator::generateVectorisedRuleset(const std::string &name,
                 continue;
             }
 
-            generateVectorStatement(*statement);
+            generateVectorStatement(statement);
+        }
+
+        // acc = acc <combine> chunk, with padding lanes replaced by the identity
+        for (const Reduction &reduction : vector_.reductions)
+        {
+            function_->localGet(reduction.accumulator);
+            generateVectorExpression(*reduction.call->arguments[0]);
+            if (!valid.empty())
+            {
+                pushReductionIdentity(reduction);
+                function_->localGet(valid);
+                function_->v128BitSelect();
+            }
+            combineReduction(reduction);
+            function_->localSet(reduction.accumulator);
         }
 
         function_->localGet(offset);
@@ -447,8 +635,20 @@ void CodeGenerator::generateVectorisedRuleset(const std::string &name,
         function_->end();
     }
 
+    for (const Reduction &reduction : vector_.reductions)
+    {
+        finishReduction(reduction);
+    }
+
+    if (tailStart < count)
+    {
+        for (std::size_t i = tailStart; i < count; i++)
+        {
+            generateStatement(*body.statements[i]);
+        }
+    }
     // the result: a field is the block the loop wrote, a scalar is computed after the loop
-    if (finalReturn != nullptr)
+    else if (finalReturn != nullptr)
     {
         if (returnType.kind == TypeKind::Field)
         {
@@ -456,13 +656,178 @@ void CodeGenerator::generateVectorisedRuleset(const std::string &name,
         }
         else if (finalReturn->value != nullptr)
         {
-            vector_.active = false; // nothing in a scalar result refers to the loop's values
             generateExpression(*finalReturn->value);
         }
         function_->returnFromFunction();
     }
 
     vector_ = VectorState();
+}
+
+// pass 1 for a statement after the first reduction: it runs after the loop, so it can
+// only work with uniforms. its reductions get accumulators in the loop
+bool CodeGenerator::prepareTailStatement(const Statement &statement, bool isLast)
+{
+    bool simple = dynamic_cast<const LetStatement *>(&statement) != nullptr ||
+                  dynamic_cast<const AssignmentStatement *>(&statement) != nullptr ||
+                  dynamic_cast<const ExpressionStatement *>(&statement) != nullptr ||
+                  dynamic_cast<const ReturnStatement *>(&statement) != nullptr;
+    if (!simple)
+    {
+        return prepareVectorStatement(statement, isLast); // reports the error
+    }
+
+    if (!isScalarStatement(statement))
+    {
+        vectorError("field operations cannot come after a reduction (they would need a second loop)");
+        return false;
+    }
+
+    if (dynamic_cast<const ReturnStatement *>(&statement) != nullptr && !isLast)
+    {
+        vectorError("return must be the last statement");
+        return false;
+    }
+
+    std::vector<const CallExpr *> reductions;
+    forEachReduction(statement, reductions);
+    for (const CallExpr *call : reductions)
+    {
+        prepareReduction(*call);
+    }
+
+    if (const LetStatement *let = dynamic_cast<const LetStatement *>(&statement))
+    {
+        vector_.tailNames.insert(let->name);
+    }
+    else if (const AssignmentStatement *assignment = dynamic_cast<const AssignmentStatement *>(&statement))
+    {
+        vector_.tailNames.insert(assignment->name);
+    }
+    return true;
+}
+
+// the reduction's argument is evaluated in the loop, so its uniforms are splatted
+// before the loop: they cannot be values that the tail computes after it
+void CodeGenerator::prepareReduction(const CallExpr &call)
+{
+    const Expression &argument = *call.arguments[0];
+
+    std::vector<const VariableExpr *> variables;
+    forEachVariable(argument, variables);
+    for (const VariableExpr *variable : variables)
+    {
+        if (vector_.tailNames.count(variable->name) != 0)
+        {
+            vectorError("the argument of '" + call.name + "' uses '" + variable->name +
+                        "', which is set after the first reduction");
+            return;
+        }
+    }
+
+    prepareVectorExpression(argument);
+
+    Reduction reduction;
+    reduction.call = &call;
+    reduction.element = argument.resolvedType.elementType->kind;
+    reduction.accumulator = newLocal(call.name, WatType::V128);
+    reduction.result = newLocal(call.name + "_result",
+                                reduction.element == TypeKind::Float ? WatType::F32 : WatType::I32);
+
+    pushReductionIdentity(reduction);
+    function_->localSet(reduction.accumulator);
+
+    vector_.reductions.push_back(reduction);
+    vector_.reductionResults[&call] = reduction.result;
+}
+
+// the value that leaves the accumulator unchanged: x + 0, min(x, +inf), x and all-ones, ...
+void CodeGenerator::pushReductionIdentity(const Reduction &reduction)
+{
+    const std::string &name = reduction.call->name;
+    bool isFloat = reduction.element == TypeKind::Float;
+    const float infinity = std::numeric_limits<float>::infinity();
+    const int largest = std::numeric_limits<int>::max();
+    const int smallest = std::numeric_limits<int>::min();
+
+    if (name == "min_of")
+    {
+        isFloat ? function_->v128ConstantF32({infinity, infinity, infinity, infinity})
+                : function_->v128ConstantI32({largest, largest, largest, largest});
+    }
+    else if (name == "max_of")
+    {
+        isFloat ? function_->v128ConstantF32({-infinity, -infinity, -infinity, -infinity})
+                : function_->v128ConstantI32({smallest, smallest, smallest, smallest});
+    }
+    else if (name == "all")
+    {
+        function_->v128ConstantI32({-1, -1, -1, -1});
+    }
+    else // sum and any
+    {
+        function_->v128ConstantI32({0, 0, 0, 0});
+    }
+}
+
+// pops two v128s and pushes them combined lane by lane
+void CodeGenerator::combineReduction(const Reduction &reduction)
+{
+    const std::string &name = reduction.call->name;
+    LaneType lanes = laneOf(reduction.element);
+
+    if (name == "sum")
+    {
+        function_->vectorAddition(lanes);
+    }
+    else if (name == "min_of")
+    {
+        function_->vectorMinimum(lanes);
+    }
+    else if (name == "max_of")
+    {
+        function_->vectorMaximum(lanes);
+    }
+    else if (name == "any")
+    {
+        function_->v128Or();
+    }
+    else
+    {
+        function_->v128And();
+    }
+}
+
+// after the loop, the 4 lanes of the accumulator are combined into one scalar
+// any / all have instructions for this; the others fold the lanes with two shuffles:
+//   [a b c d] with [c d a b]  ->  [ac bd ac bd]
+//   that with [bd ac bd ac]   ->  every lane holds the whole result, take lane 0
+void CodeGenerator::finishReduction(const Reduction &reduction)
+{
+    const std::string &name = reduction.call->name;
+    const std::string &accumulator = reduction.accumulator;
+
+    if (name == "any" || name == "all")
+    {
+        function_->localGet(accumulator);
+        name == "any" ? function_->v128AnyTrue() : function_->i32x4AllTrue();
+        function_->localSet(reduction.result);
+        return;
+    }
+
+    // the shuffle pops two operands (both acc), so acc is pushed a third time to combine with
+    function_->localGet(accumulator);
+    function_->localGet(accumulator);
+    function_->localGet(accumulator);
+    function_->vectorShuffle({2, 3, 0, 1});
+    combineReduction(reduction);
+    function_->localTee(accumulator);
+    function_->localGet(accumulator);
+    function_->localGet(accumulator);
+    function_->vectorShuffle({1, 0, 3, 2});
+    combineReduction(reduction);
+    function_->vectorExtractLane(laneOf(reduction.element), 0);
+    function_->localSet(reduction.result);
 }
 
 // pass 1 for one statement; returns false if the statement cannot be vectorised
@@ -567,6 +932,14 @@ void CodeGenerator::prepareVectorExpression(const Expression &expression)
     // bools become masks first: 0 - b gives -1 for true and 0 for false
     if (type.kind != TypeKind::Field)
     {
+        // a reduction is only known after the loop, but this uniform is needed inside it
+        if (containsReduction(expression))
+        {
+            vectorError("the result of a reduction cannot be used by field operations "
+                        "in the same ruleset (it would need a second loop)");
+            return;
+        }
+
         if (type.kind == TypeKind::Bool)
         {
             function_->i32Constant(0);
@@ -1350,6 +1723,33 @@ void CodeGenerator::generatePrint(const CallExpr &call)
 
 void CodeGenerator::generateCall(const CallExpr &call)
 {
+    // the length is part of the field's type, so the argument is not evaluated
+    // (like sizeof in C, any calls inside it do not run)
+    if (call.name == "length")
+    {
+        const Type &type = call.arguments.empty() ? Type{} : call.arguments[0]->resolvedType;
+        if (type.kind != TypeKind::Field)
+        {
+            addError("length expects a field argument; run semantic analysis first");
+            return;
+        }
+        function_->i32Constant(static_cast<int>(type.length));
+        return;
+    }
+
+    // a reduction's result was computed by the loop (see finishReduction)
+    if (isReductionName(call.name))
+    {
+        auto result = vector_.reductionResults.find(&call);
+        if (result == vector_.reductionResults.end())
+        {
+            addError("Reduction '" + call.name + "' outside a vectorised ruleset; run semantic analysis first");
+            return;
+        }
+        function_->localGet(result->second);
+        return;
+    }
+
     // in a vectorised ruleset, calls run before the loop on whole fields in memory,
     // so a field argument cannot be a value that only exists chunk by chunk in the loop
     if (vector_.active)

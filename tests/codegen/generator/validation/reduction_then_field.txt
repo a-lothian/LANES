@@ -1,0 +1,1 @@
+codegen: Ruleset 'normalise' cannot be vectorised: field operations cannot come after a reduction (they would need a second loop)

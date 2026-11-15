@@ -1,0 +1,10 @@
+// reductions keep a v128 accumulator for the loop, then fold its 4 lanes after it
+// length 6 is not a multiple of 4, so padding lanes are replaced by the identity (0)
+ruleset total(x: field<f32, 6>) -> f32 {
+    return sum(x * 2.0);
+}
+
+// length 4 needs no padding mask; any_true folds the lanes
+ruleset over(x: field<i32, 4>, limit: integer) -> bool {
+    return any(x > limit);
+}

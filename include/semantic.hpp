@@ -25,6 +25,7 @@ private:
 
     // built-in functions, currently just print
     static bool isBuiltin(const std::string &name);
+    static bool isReduction(const std::string &name);
     Type analyseBuiltinCall(const CallExpr &call);
     void analyseFunction(const FunctionDecl &function);
     void analyseBlock(const BlockStatement &block, bool createScope = true);

@@ -1,0 +1,1 @@
+codegen: Ruleset 'weighted' cannot be vectorised: the argument of 'sum' uses 'k', which is set after the first reduction

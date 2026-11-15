@@ -54,12 +54,27 @@ private:
     void generateVectorisedRuleset(const std::string &name, const std::vector<Parameter> &parameters,
                                    const Type &returnType, const BlockStatement &body);
     bool prepareVectorStatement(const Statement &statement, bool isLast);
+    bool prepareTailStatement(const Statement &statement, bool isLast);
     void prepareVectorExpression(const Expression &expression);
     void generateVectorExpression(const Expression &expression);
     void generateVectorStatement(const Statement &statement);
     void checkVectorLength(std::uint32_t length);
     std::string parameterChunk(const std::string &parameter);
     void vectorError(const std::string &reason);
+
+    // sum, min_of, max_of, any or all: a v128 accumulator updated once per chunk,
+    // then folded into one scalar after the loop
+    struct Reduction
+    {
+        const CallExpr *call = nullptr;
+        TypeKind element = TypeKind::Error;  // element type of the argument
+        std::string accumulator;             // v128 local
+        std::string result;                  // i32 or f32 local, set after the loop
+    };
+    void prepareReduction(const CallExpr &call);
+    void pushReductionIdentity(const Reduction &reduction);
+    void combineReduction(const Reduction &reduction);
+    void finishReduction(const Reduction &reduction);
 
     struct VectorState
     {
@@ -77,6 +92,10 @@ private:
         std::unordered_set<std::string> vectorLocals;                   // field lets
         std::unordered_set<std::string> assignedParameters;             // field parameters assigned in the body
         std::vector<std::pair<std::string, std::string>> parameterChunks;  // parameter -> v128 local, loaded each chunk
+
+        std::vector<Reduction> reductions;
+        std::unordered_map<const CallExpr *, std::string> reductionResults;  // reduction call -> result local
+        std::unordered_set<std::string> tailNames;  // variables set after the first reduction
     };
     VectorState vector_;
 

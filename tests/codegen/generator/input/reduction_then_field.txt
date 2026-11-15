@@ -1,0 +1,5 @@
+// statements after the first reduction run after the loop, so they cannot use fields
+ruleset normalise(x: field<f32, 4>) -> field<f32, 4> {
+    let total = sum(x);
+    return x / total;
+}

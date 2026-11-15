@@ -1,0 +1,83 @@
+// reductions: lengths 5 and 6 end in a partly padded chunk; the inputs are chosen so
+// that a padding lane (0) would change the answer if it were not masked out
+
+ruleset total(x: field<f32, 6>) -> f32 {
+    return sum(x);
+}
+
+ruleset total_int(x: field<i32, 5>) -> integer {
+    return sum(x);
+}
+
+ruleset smallest(x: field<f32, 6>) -> f32 {
+    return min_of(x);
+}
+
+ruleset largest(x: field<i32, 5>) -> integer {
+    return max_of(x);
+}
+
+ruleset smallest_int(x: field<i32, 4>) -> integer {
+    return min_of(x);
+}
+
+ruleset largest_float(x: field<f32, 4>) -> f32 {
+    return max_of(x);
+}
+
+ruleset any_above(x: field<i32, 5>, limit: integer) -> bool {
+    return any(x > limit);
+}
+
+ruleset all_above(x: field<i32, 5>, limit: integer) -> bool {
+    return all(x > limit);
+}
+
+// a field statement before the reductions, and two reductions in one loop
+ruleset spread(x: field<f32, 4>, w: f32) -> f32 {
+    let scaled = x * w;
+    let t = sum(scaled);
+    let biggest = max_of(x);
+    return t - biggest;
+}
+
+ruleset mean(x: field<f32, 8>) -> f32 {
+    return sum(x) / 8.0;
+}
+
+ruleset range(x: field<i32, 6>) -> integer {
+    let lo = min_of(x);
+    let hi = max_of(x);
+    return hi - lo;
+}
+
+// a literal is read from memory one chunk at a time
+ruleset literal_sum() -> integer {
+    return sum([1, 2, 3]);
+}
+
+ruleset count(x: field<f32, 7>) -> integer {
+    return length(x);
+}
+
+function main() -> integer {
+    print(total([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]));
+    print(total_int([1, 2, 3, 4, 5]));
+    print(smallest([5.0, 3.0, 8.0, 4.0, 9.0, 7.0]));
+    print(largest([-5, -3, -8, -4, -9]));
+    print(smallest_int([4, -2, 7, 1]));
+    print(largest_float([1.5, -2.0, 2.5, -0.5]));
+    print(any_above([1, 2, 3, 4, 5], 10));
+    print(any_above([1, 2, 3, 4, 5], 4));
+    print(all_above([1, 2, 3, 4, 5], 0));
+    print(all_above([1, 2, 3, 4, 5], 1));
+    print(spread([1.0, 2.0, 3.0, 4.0], 2.0));
+    print(mean([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]));
+    print(range([3, 9, -2, 7, 0, 5]));
+    print(literal_sum());
+    print(count([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]));
+
+    let a = [1, 2, 3];
+    print(length(a));
+    return 0;
+}
