@@ -61,6 +61,9 @@ private:
     std::unique_ptr<Statement> parseExpressionStatement();
 
     std::unique_ptr<Expression> parseExpression();
+    std::unique_ptr<Expression> parseOr();
+    std::unique_ptr<Expression> parseAnd();
+    std::unique_ptr<Expression> parseNot();
     std::unique_ptr<Expression> parseEquality();
     std::unique_ptr<Expression> parseComparison();
     std::unique_ptr<Expression> parseTerm();

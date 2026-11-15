@@ -1,0 +1,78 @@
+// and / or / not on bools, and element-wise on bool fields in rulesets
+
+// short-circuit: 10 / n only runs when n != 0
+function safe(n: integer) -> bool {
+    return n != 0 and 10 / n > 1;
+}
+
+function zero_or_small(n: integer) -> bool {
+    return n == 0 or 10 / n > 1;
+}
+
+function loud() -> bool {
+    print(99);
+    return true;
+}
+
+ruleset both(a: field<bool, 5>, b: field<bool, 5>) -> field<bool, 5> {
+    return a and b;
+}
+
+ruleset either(a: field<bool, 5>, b: field<bool, 5>) -> field<bool, 5> {
+    return a or b;
+}
+
+ruleset invert(a: field<bool, 5>) -> field<bool, 5> {
+    return not a;
+}
+
+ruleset in_range(x: field<f32, 6>, lo: f32, hi: f32) -> field<bool, 6> {
+    return x >= lo and x <= hi;
+}
+
+// a uniform bool is broadcast to every lane
+ruleset gate(a: field<bool, 4>, on: bool) -> field<bool, 4> {
+    return a and on;
+}
+
+ruleset no_negatives(x: field<i32, 5>) -> bool {
+    return not any(x < 0);
+}
+
+ruleset count_between(x: field<i32, 6>) -> integer {
+    return sum(select(x > 0 and x < 10, 1, 0));
+}
+
+function main() -> integer {
+    print(true and false);
+    print(true and true);
+    print(false or true);
+    print(false or false);
+    print(not true);
+
+    // precedence: or < and < not < ==
+    print(not 1 == 2);
+    print(true or false and false);
+    print(not false and false);
+
+    print(safe(0));
+    print(safe(5));
+    print(zero_or_small(0));
+    print(zero_or_small(20));
+
+    // loud() only runs when the left side does not decide the result
+    print(false and loud());
+    print(true and loud());
+    print(true or loud());
+
+    print(both([true, true, false, false, true], [true, false, true, false, true]));
+    print(either([true, true, false, false, true], [true, false, true, false, true]));
+    print(invert([true, false, true, false, true]));
+    print(in_range([0.0, 1.0, 2.0, 3.0, 4.0, 5.0], 1.0, 3.5));
+    print(gate([true, false, true, true], false));
+    print(gate([true, false, true, true], true));
+    print(no_negatives([1, 2, 3, 4, 5]));
+    print(no_negatives([1, -2, 3, 4, 5]));
+    print(count_between([5, -1, 12, 3, 9, 10]));
+    return 0;
+}

@@ -1,0 +1,93 @@
+(module
+  (memory (export "memory") 1)
+  (func $smaller (param $a i32) (param $b i32) (result i32)
+    (local $__a i32)
+    (local $__b i32)
+    local.get $a
+    local.get $b
+    local.set $__b
+    local.set $__a
+    local.get $__a
+    local.get $__b
+    local.get $__a
+    local.get $__b
+    i32.lt_s
+    select
+    return
+  )
+  (func $relu (param $x i32) (result i32)
+    (local $__x v128)
+    (local $__splat v128)
+    (local $__splat_1 v128)
+    (local $__offset i32)
+    f32.const 0
+    f32x4.splat
+    local.set $__splat
+    f32.const 0
+    f32x4.splat
+    local.set $__splat_1
+    loop $chunk_loop
+      local.get $x
+      local.get $__offset
+      i32.add
+      v128.load
+      local.set $__x
+      i32.const 0
+      local.get $__offset
+      i32.add
+      local.get $__x
+      local.get $__splat_1
+      local.get $__x
+      local.get $__splat
+      f32x4.gt
+      v128.bitselect
+      v128.store
+      local.get $__offset
+      i32.const 16
+      i32.add
+      local.tee $__offset
+      i32.const 16
+      i32.lt_s
+      br_if $chunk_loop
+    end
+    i32.const 0
+    return
+  )
+  (func $ramp (param $x i32) (result i32)
+    (local $__x v128)
+    (local $__index v128)
+    (local $__offset i32)
+    v128.const i32x4 0 1 2 3
+    local.set $__index
+    loop $chunk_loop
+      local.get $x
+      local.get $__offset
+      i32.add
+      v128.load
+      local.set $__x
+      i32.const 16
+      local.get $__offset
+      i32.add
+      local.get $__x
+      local.get $__index
+      i32x4.add
+      v128.store
+      local.get $__index
+      v128.const i32x4 4 4 4 4
+      i32x4.add
+      local.set $__index
+      local.get $__offset
+      i32.const 16
+      i32.add
+      local.tee $__offset
+      i32.const 32
+      i32.lt_s
+      br_if $chunk_loop
+    end
+    i32.const 16
+    return
+  )
+  (export "smaller" (func $smaller))
+  (export "relu" (func $relu))
+  (export "ramp" (func $ramp))
+)

@@ -115,6 +115,9 @@ const std::unordered_map<std::string_view, TokenType> keywords = {
     {"while", TokenType::KeywordWhile},
     {"true", TokenType::KeywordTrue},
     {"false", TokenType::KeywordFalse},
+    {"and", TokenType::KeywordAnd},
+    {"or", TokenType::KeywordOr},
+    {"not", TokenType::KeywordNot},
 };
 
 Token Lexer::tokenizeKeyword(uint start) {

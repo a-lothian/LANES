@@ -524,8 +524,55 @@ std::unique_ptr<Statement> Parser::parseExpressionStatement()
     return statement;
 }
 
+// operation precedence: or, and, not, == !=, < > <= >=, + -, * /, unary -
+// so `not a == b or c` is `(not (a == b)) or c`
 std::unique_ptr<Expression> Parser::parseExpression()
 {
+    return parseOr();
+}
+
+std::unique_ptr<Expression> Parser::parseOr()
+{
+    std::unique_ptr<Expression> expression = parseAnd();
+
+    while (match(TokenType::KeywordOr))
+    {
+        auto binary = std::make_unique<BinaryExpr>();
+        binary->op = BinaryOperator::Or;
+        binary->left = std::move(expression);
+        binary->right = parseAnd();
+        expression = std::move(binary);
+    }
+
+    return expression;
+}
+
+std::unique_ptr<Expression> Parser::parseAnd()
+{
+    std::unique_ptr<Expression> expression = parseNot();
+
+    while (match(TokenType::KeywordAnd))
+    {
+        auto binary = std::make_unique<BinaryExpr>();
+        binary->op = BinaryOperator::And;
+        binary->left = std::move(expression);
+        binary->right = parseNot();
+        expression = std::move(binary);
+    }
+
+    return expression;
+}
+
+std::unique_ptr<Expression> Parser::parseNot()
+{
+    if (match(TokenType::KeywordNot))
+    {
+        auto expression = std::make_unique<UnaryExpr>();
+        expression->op = UnaryOperator::Not;
+        expression->operand = parseNot();
+        return expression;
+    }
+
     return parseEquality();
 }
 

@@ -51,13 +51,16 @@ enum class BinaryOperator
     LessThan,
     GreaterThan,
     LessThanEqual,
-    GreaterThanEqual
+    GreaterThanEqual,
+    And,
+    Or
 };
 
 // unary operators
 enum class UnaryOperator
 {
-    Negate
+    Negate,
+    Not
 };
 
 // represents a binary expression, e.g. a + b

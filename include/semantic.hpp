@@ -23,10 +23,13 @@ private:
     // false if a function / ruleset name is reserved
     bool checkDeclarationName(const std::string &name);
 
-    // built-in functions, currently just print
+    // built-in functions
     static bool isBuiltin(const std::string &name);
     static bool isReduction(const std::string &name);
+    static bool isElementwiseBuiltin(const std::string &name);
+    Type analyseElementwiseBuiltin(const CallExpr &call);
     Type analyseBuiltinCall(const CallExpr &call);
+    
     void analyseFunction(const FunctionDecl &function);
     void analyseBlock(const BlockStatement &block, bool createScope = true);
     void analyseStatement(const Statement &statement);

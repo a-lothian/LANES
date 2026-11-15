@@ -14,6 +14,9 @@ std::string tokenSymbol(TokenType t) {
         case TokenType::KeywordWhile: return "while";
         case TokenType::KeywordTrue: return "true";
         case TokenType::KeywordFalse: return "false";
+        case TokenType::KeywordAnd: return "and";
+        case TokenType::KeywordOr: return "or";
+        case TokenType::KeywordNot: return "not";
         case TokenType::LeftBracket: return "(";
         case TokenType::RightBracket: return ")";
         case TokenType::LeftBrace: return "{";
@@ -55,6 +58,9 @@ std::string tokenName(TokenType t) {
         case TokenType::KeywordWhile: return "Keyword while";
         case TokenType::KeywordTrue: return "Keyword true";
         case TokenType::KeywordFalse: return "Keyword false";
+        case TokenType::KeywordAnd: return "Keyword and";
+        case TokenType::KeywordOr: return "Keyword or";
+        case TokenType::KeywordNot: return "Keyword not";
         case TokenType::LeftBracket: return "Left bracket";
         case TokenType::RightBracket: return "Right bracket";
         case TokenType::LeftBrace: return "Left brace";

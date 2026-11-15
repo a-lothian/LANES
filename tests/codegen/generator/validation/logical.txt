@@ -1,0 +1,71 @@
+(module
+  (memory (export "memory") 1)
+  (func $safe (param $n i32) (result i32)
+    local.get $n
+    i32.const 0
+    i32.ne
+    if (result i32)
+      i32.const 10
+      local.get $n
+      i32.div_s
+      i32.const 1
+      i32.gt_s
+    else
+      i32.const 0
+    end
+    return
+  )
+  (func $either (param $a i32) (param $b i32) (result i32)
+    local.get $a
+    if (result i32)
+      i32.const 1
+    else
+      local.get $b
+      i32.eqz
+    end
+    return
+  )
+  (func $in_range (param $x i32) (param $lo f32) (param $hi f32) (result i32)
+    (local $__x v128)
+    (local $__splat v128)
+    (local $__splat_1 v128)
+    (local $__offset i32)
+    local.get $lo
+    f32x4.splat
+    local.set $__splat
+    local.get $hi
+    f32x4.splat
+    local.set $__splat_1
+    loop $chunk_loop
+      local.get $x
+      local.get $__offset
+      i32.add
+      v128.load
+      local.set $__x
+      i32.const 0
+      local.get $__offset
+      i32.add
+      local.get $__x
+      local.get $__splat
+      f32x4.lt
+      v128.not
+      local.get $__x
+      local.get $__splat_1
+      f32x4.le
+      v128.and
+      v128.store
+      local.get $__offset
+      i32.const 16
+      i32.add
+      local.tee $__offset
+      i32.const 16
+      i32.lt_s
+      br_if $chunk_loop
+    end
+    i32.const 0
+    return
+  )
+  (export "safe" (func $safe))
+  (export "either" (func $either))
+  (export "in_range" (func $in_range))
+)

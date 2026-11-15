@@ -203,8 +203,16 @@ static bool isReductionName(const std::string &name)
            name == "any" || name == "all";
 }
 
-// true if the expression contains an element-wise field operation (a + b, -a, a < 2.0)
-// or a reduction
+// math built-ins that work on a uniform, or on each element of a field
+static bool isElementwiseBuiltinName(const std::string &name)
+{
+    return name == "abs" || name == "min" || name == "max" || name == "clamp" ||
+           name == "sqrt" || name == "floor" || name == "ceil" || name == "round" ||
+           name == "to_f32" || name == "to_i32" || name == "select" || name == "index";
+}
+
+// true if the expression contains an element-wise field operation (a + b, -a, a < 2.0,
+// abs(a)) or a reduction
 static bool usesFieldOperations(const Expression &expression)
 {
     if (const BinaryExpr *binary = dynamic_cast<const BinaryExpr *>(&expression))
@@ -221,7 +229,8 @@ static bool usesFieldOperations(const Expression &expression)
 
     if (const CallExpr *call = dynamic_cast<const CallExpr *>(&expression))
     {
-        if (isReductionName(call->name))
+        if (isReductionName(call->name) ||
+            (isElementwiseBuiltinName(call->name) && call->resolvedType.kind == TypeKind::Field))
         {
             return true;
         }
@@ -625,6 +634,14 @@ void CodeGenerator::generateVectorisedRuleset(const std::string &name,
             function_->localSet(reduction.accumulator);
         }
 
+        if (!vector_.index.empty())
+        {
+            function_->localGet(vector_.index);
+            function_->v128ConstantI32({4, 4, 4, 4});
+            function_->vectorAddition(LaneType::I32x4);
+            function_->localSet(vector_.index);
+        }
+
         function_->localGet(offset);
         function_->i32Constant(static_cast<int>(CHUNK_BYTES));
         function_->i32Addition();
@@ -981,6 +998,32 @@ void CodeGenerator::prepareVectorExpression(const Expression &expression)
         return;
     }
 
+    // field built-ins run in the loop; only their arguments need preparing
+    // index(x) only uses x's length, so x is not evaluated: the loop keeps a running
+    // index vector, [0 1 2 3] for the first chunk, then +4 per chunk
+    if (const CallExpr *call = dynamic_cast<const CallExpr *>(&expression))
+    {
+        if (call->name == "index")
+        {
+            if (vector_.index.empty())
+            {
+                vector_.index = newLocal("index", WatType::V128);
+                function_->v128ConstantI32({0, 1, 2, 3});
+                function_->localSet(vector_.index);
+            }
+            return;
+        }
+
+        if (isElementwiseBuiltinName(call->name))
+        {
+            for (const std::unique_ptr<Expression> &argument : call->arguments)
+            {
+                prepareVectorExpression(*argument);
+            }
+            return;
+        }
+    }
+
     // a literal or a call gives the address of a whole field in memory,
     // which the loop reads one chunk at a time
     if (dynamic_cast<const FieldLiteralExpr *>(&expression) != nullptr ||
@@ -1052,7 +1095,20 @@ void CodeGenerator::generateVectorExpression(const Expression &expression)
     if (const UnaryExpr *unary = dynamic_cast<const UnaryExpr *>(&expression))
     {
         generateVectorExpression(*unary->operand);
-        function_->vectorNegation(laneOf(unary->operand->resolvedType));
+        if (unary->op == UnaryOperator::Not)
+        {
+            function_->v128Not();
+        }
+        else
+        {
+            function_->vectorNegation(laneOf(unary->operand->resolvedType));
+        }
+        return;
+    }
+
+    if (const CallExpr *call = dynamic_cast<const CallExpr *>(&expression))
+    {
+        generateVectorBuiltin(*call);
         return;
     }
 
@@ -1101,6 +1157,12 @@ void CodeGenerator::generateVectorExpression(const Expression &expression)
         return;
     case BinaryOperator::GreaterThanEqual:
         function_->vectorGreaterThanOrEqual(lanes);
+        return;
+    case BinaryOperator::And:
+        function_->v128And();
+        return;
+    case BinaryOperator::Or:
+        function_->v128Or();
         return;
     }
 }
@@ -1154,6 +1216,7 @@ void CodeGenerator::generateCallable(const std::string &name,
     // fresh naming state for each function
     scopes_.clear();
     usedLocalNames_.clear();
+    scratchLocals_.clear();
     labelCounter_ = 0;
 
     // parameters and top level locals share one scope like semantic analysis
@@ -1721,6 +1784,208 @@ void CodeGenerator::generatePrint(const CallExpr &call)
     function_->call("__" + hostFunction);
 }
 
+// a compiler-generated i32 local shared by every use in the current function,
+// for values that only live between two consecutive instructions
+std::string CodeGenerator::scratchLocal(const std::string &base)
+{
+    auto found = scratchLocals_.find(base);
+    if (found != scratchLocals_.end())
+    {
+        return found->second;
+    }
+
+    std::string name = newLocal(base, WatType::I32);
+    scratchLocals_[base] = name;
+    return name;
+}
+
+// pops a, b -> the smaller (or larger) of two i32s, as WASM has no i32.min / i32.max:
+//   a b (a < b) select
+void CodeGenerator::integerMinMax(bool minimum)
+{
+    std::string a = scratchLocal("a");
+    std::string b = scratchLocal("b");
+
+    function_->localSet(b);
+    function_->localSet(a);
+    function_->localGet(a);
+    function_->localGet(b);
+    function_->localGet(a);
+    function_->localGet(b);
+    minimum ? function_->i32SignedLessThan() : function_->i32SignedGreaterThan();
+    function_->select();
+}
+
+void CodeGenerator::generateScalarBuiltin(const CallExpr &call)
+{
+    const std::string &name = call.name;
+    bool isFloat = call.arguments[name == "select" ? 1 : 0]->resolvedType.kind == TypeKind::Float;
+
+    for (const std::unique_ptr<Expression> &argument : call.arguments)
+    {
+        if (name == "clamp" && argument != call.arguments.front())
+        {
+            break; // lo and hi are generated between the max and the min below
+        }
+        if (name == "select")
+        {
+            break; // generated below, in select's operand order
+        }
+        generateExpression(*argument);
+    }
+
+    if (name == "abs")
+    {
+        if (isFloat)
+        {
+            function_->f32Absolute();
+            return;
+        }
+
+        // (0 - x) x (x < 0) select
+        std::string x = scratchLocal("a");
+        function_->localSet(x);
+        function_->i32Constant(0);
+        function_->localGet(x);
+        function_->i32Subtraction();
+        function_->localGet(x);
+        function_->localGet(x);
+        function_->i32Constant(0);
+        function_->i32SignedLessThan();
+        function_->select();
+    }
+    else if (name == "min" || name == "max")
+    {
+        bool minimum = name == "min";
+        if (isFloat)
+        {
+            minimum ? function_->f32Minimum() : function_->f32Maximum();
+        }
+        else
+        {
+            integerMinMax(minimum);
+        }
+    }
+    else if (name == "clamp")
+    {
+        // min(max(x, lo), hi)
+        generateExpression(*call.arguments[1]);
+        isFloat ? function_->f32Maximum() : integerMinMax(false);
+        generateExpression(*call.arguments[2]);
+        isFloat ? function_->f32Minimum() : integerMinMax(true);
+    }
+    else if (name == "sqrt")
+    {
+        function_->f32SquareRoot();
+    }
+    else if (name == "floor")
+    {
+        function_->f32Floor();
+    }
+    else if (name == "ceil")
+    {
+        function_->f32Ceiling();
+    }
+    else if (name == "round")
+    {
+        function_->f32Nearest();
+    }
+    else if (name == "to_f32")
+    {
+        function_->f32ConvertFromSignedI32();
+    }
+    else if (name == "to_i32")
+    {
+        // saturating, to match the field version (i32x4.trunc_sat_f32x4_s)
+        function_->i32SaturatingTruncateFromSignedF32();
+    }
+    else if (name == "select")
+    {
+        // WASM's select takes (a, b, condition)
+        generateExpression(*call.arguments[1]);
+        generateExpression(*call.arguments[2]);
+        generateExpression(*call.arguments[0]);
+        function_->select();
+    }
+    else
+    {
+        addError("Unsupported built-in '" + name + "' in code generation");
+    }
+}
+
+// the built-ins on fields, inside the loop: pushes the v128 for the current chunk
+void CodeGenerator::generateVectorBuiltin(const CallExpr &call)
+{
+    const std::string &name = call.name;
+
+    if (name == "index")
+    {
+        function_->localGet(vector_.index);
+        return;
+    }
+
+    if (!isElementwiseBuiltinName(name))
+    {
+        vectorError("unsupported field expression");
+        return;
+    }
+
+    LaneType lanes = laneOf(call.resolvedType);
+
+    if (name == "select")
+    {
+        // v128.bitselect takes (a, b, mask); a uniform mask was splatted as 0 or -1
+        generateVectorExpression(*call.arguments[1]);
+        generateVectorExpression(*call.arguments[2]);
+        generateVectorExpression(*call.arguments[0]);
+        function_->v128BitSelect();
+        return;
+    }
+
+    generateVectorExpression(*call.arguments[0]);
+
+    if (name == "abs")
+    {
+        function_->vectorAbsolute(lanes);
+    }
+    else if (name == "min" || name == "max")
+    {
+        generateVectorExpression(*call.arguments[1]);
+        name == "min" ? function_->vectorMinimum(lanes) : function_->vectorMaximum(lanes);
+    }
+    else if (name == "clamp")
+    {
+        generateVectorExpression(*call.arguments[1]);
+        function_->vectorMaximum(lanes);
+        generateVectorExpression(*call.arguments[2]);
+        function_->vectorMinimum(lanes);
+    }
+    else if (name == "sqrt")
+    {
+        function_->f32x4SquareRoot();
+    }
+    else if (name == "floor")
+    {
+        function_->f32x4Floor();
+    }
+    else if (name == "ceil")
+    {
+        function_->f32x4Ceiling();
+    }
+    else if (name == "round")
+    {
+        function_->f32x4Nearest();
+    }
+    else if (name == "to_f32")
+    {
+        function_->tof32x4();
+    }
+    else if (name == "to_i32")
+    {
+        function_->toi32x4();
+    }
+}
+
 void CodeGenerator::generateCall(const CallExpr &call)
 {
     // the length is part of the field's type, so the argument is not evaluated
@@ -1747,6 +2012,19 @@ void CodeGenerator::generateCall(const CallExpr &call)
             return;
         }
         function_->localGet(result->second);
+        return;
+    }
+
+    // field built-ins are compiled by generateVectorBuiltin, so these are uniforms
+    if (isElementwiseBuiltinName(call.name))
+    {
+        if (call.resolvedType.kind == TypeKind::Field)
+        {
+            addError("Field built-in '" + call.name +
+                     "' outside a vectorised ruleset; run semantic analysis first");
+            return;
+        }
+        generateScalarBuiltin(call);
         return;
     }
 
@@ -1796,16 +2074,18 @@ void CodeGenerator::generateCall(const CallExpr &call)
 
 void CodeGenerator::generateUnary(const UnaryExpr &unary)
 {
-    if (unary.op != UnaryOperator::Negate)
-    {
-        addError("Unsupported unary operator in code generation");
-        return;
-    }
-
     // field operations are compiled by generateVectorExpression
     if (unary.operand->resolvedType.kind == TypeKind::Field)
     {
         addError("Field operation outside a vectorised ruleset; run semantic analysis first");
+        return;
+    }
+
+    // bools are 0 or 1, so not b is b == 0
+    if (unary.op == UnaryOperator::Not)
+    {
+        generateExpression(*unary.operand);
+        function_->i32EqualToZero();
         return;
     }
 
@@ -1836,6 +2116,22 @@ void CodeGenerator::generateBinary(const BinaryExpr &binary)
         binary.right->resolvedType.kind == TypeKind::Field)
     {
         addError("Field operation outside a vectorised ruleset; run semantic analysis first");
+        return;
+    }
+
+    //  the right side only runs if it decides the result, so
+    // `n != 0 and 10 / n > 1` never divides by zero
+    //   a and b  ->  a  if (result i32)  b  else  i32.const 0  end
+    //  a or b   ->  a  if (result i32)  i32.const 1  else  b  end
+    if (binary.op == BinaryOperator::And || binary.op == BinaryOperator::Or)
+    {
+        bool isAnd = binary.op == BinaryOperator::And;
+        generateExpression(*binary.left);
+        function_->beginIfWithResult(WatType::I32);
+        isAnd ? generateExpression(*binary.right) : function_->i32Constant(1);
+        function_->beginElse();
+        isAnd ? function_->i32Constant(0) : generateExpression(*binary.right);
+        function_->end();
         return;
     }
 
@@ -1879,6 +2175,9 @@ void CodeGenerator::generateBinary(const BinaryExpr &binary)
         case BinaryOperator::GreaterThanEqual:
             function_->i32SignedGreaterThanOrEqual();
             return;
+        case BinaryOperator::And:
+        case BinaryOperator::Or:
+            break;
         }
     }
     else if (operandType == TypeKind::Float)
@@ -1915,6 +2214,9 @@ void CodeGenerator::generateBinary(const BinaryExpr &binary)
         case BinaryOperator::GreaterThanEqual:
             function_->f32GreaterThanOrEqual();
             return;
+        case BinaryOperator::And:
+        case BinaryOperator::Or:
+            break;
         }
     }
 

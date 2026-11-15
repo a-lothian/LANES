@@ -130,6 +130,16 @@ void WatFunction::f32LessThanOrEqual() { emit("f32.le"); }
 void WatFunction::f32GreaterThanOrEqual() { emit("f32.ge"); }
 
 
+void WatFunction::f32Absolute() { emit("f32.abs"); }
+void WatFunction::f32Minimum() { emit("f32.min"); }
+void WatFunction::f32Maximum() { emit("f32.max"); }
+void WatFunction::f32SquareRoot() { emit("f32.sqrt"); }
+void WatFunction::f32Floor() { emit("f32.floor"); }
+void WatFunction::f32Ceiling() { emit("f32.ceil"); }
+void WatFunction::f32Nearest() { emit("f32.nearest"); }
+void WatFunction::select() { emit("select"); }
+void WatFunction::i32SaturatingTruncateFromSignedF32() { emit("i32.trunc_sat_f32_s"); }
+
 void WatFunction::f32ConvertFromSignedI32() { emit("f32.convert_i32_s"); }
 void WatFunction::i32TruncateFromSignedF32() { emit("i32.trunc_f32_s"); }
 
@@ -223,6 +233,7 @@ void WatFunction::open(const std::string& keyword, const std::string& label) {
 void WatFunction::beginBlock(const std::string& label) { open("block", label); }
 void WatFunction::beginLoop(const std::string& label) { open("loop", label); }
 void WatFunction::beginIf(const std::string& label) { open("if", label); }
+void WatFunction::beginIfWithResult(WatType result) { open("if" + resultClause({result}), ""); }
 
 
 void WatFunction::beginElse() {

@@ -83,6 +83,7 @@ private:
         std::uint32_t length = 0;  // every field in the loop has this length
         std::uint32_t result = 0;  // address of the returned field's block
         std::string offset;        // i32 local; byte offset of the current chunk
+        std::string index;         // v128 local for index(): element numbers of the current chunk
         bool lengthMismatchReported = false;
 
         std::unordered_map<const Expression *, std::string> splats;     // uniform -> v128 local
@@ -110,6 +111,13 @@ private:
     void generateFieldLiteral(const FieldLiteralExpr &literal);
     void generateCall(const CallExpr &call);
     void generatePrint(const CallExpr &call);
+
+    // math built-ins
+    void generateScalarBuiltin(const CallExpr &call);
+    void generateVectorBuiltin(const CallExpr &call);
+    void integerMinMax(bool minimum);
+    std::string scratchLocal(const std::string &base);
+    std::unordered_map<std::string, std::string> scratchLocals_;  // per function
 
     // fields use copy value semantics
     bool reserveField(const Type &type, std::uint32_t &address, const std::string &context);

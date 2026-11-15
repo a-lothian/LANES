@@ -304,7 +304,150 @@ bool SemanticAnalyser::checkDeclarationName(const std::string &name)
 
 bool SemanticAnalyser::isBuiltin(const std::string &name)
 {
-    return name == "print" || name == "length" || isReduction(name);
+    return name == "print" || name == "length" || isReduction(name) || isElementwiseBuiltin(name);
+}
+
+// math built-ins that work on a uniform, or on each element of a field
+bool SemanticAnalyser::isElementwiseBuiltin(const std::string &name)
+{
+    return name == "abs" || name == "min" || name == "max" || name == "clamp" ||
+           name == "sqrt" || name == "floor" || name == "ceil" || name == "round" ||
+           name == "to_f32" || name == "to_i32" || name == "select" || name == "index";
+}
+
+Type SemanticAnalyser::analyseElementwiseBuiltin(const CallExpr &call)
+{
+    const std::string &name = call.name;
+
+    std::size_t expected = 1;
+    if (name == "min" || name == "max")
+    {
+        expected = 2;
+    }
+    else if (name == "clamp" || name == "select")
+    {
+        expected = 3;
+    }
+
+    if (call.arguments.size() != expected)
+    {
+        errors_.push_back("Incorrect number of arguments for function: '" + name + "'");
+        return Type{TypeKind::Error, nullptr};
+    }
+
+    std::vector<Type> arguments;
+    bool failed = false;
+    for (const std::unique_ptr<Expression> &argument : call.arguments)
+    {
+        arguments.push_back(analyseExpression(*argument));
+        failed = failed || arguments.back().kind == TypeKind::Error;
+    }
+    if (failed)
+    {
+        return Type{TypeKind::Error, nullptr};
+    }
+
+    if (name == "index")
+    {
+        if (arguments[0].kind != TypeKind::Field)
+        {
+            errors_.push_back("'index' requires a field argument");
+            return Type{TypeKind::Error, nullptr};
+        }
+        if (!checkInRuleset())
+        {
+            return Type{TypeKind::Error, nullptr};
+        }
+
+        Type result{TypeKind::Field, std::make_shared<Type>(Type{TypeKind::Int, nullptr})};
+        result.length = arguments[0].length;
+        return result;
+    }
+
+    // every field argument must have the same length; elements are compared below
+    std::uint32_t length = 0;
+    for (const Type &argument : arguments)
+    {
+        if (argument.kind == TypeKind::Void)
+        {
+            errors_.push_back("'" + name + "' requires integer, float, bool or field arguments");
+            return Type{TypeKind::Error, nullptr};
+        }
+        if (argument.kind != TypeKind::Field)
+        {
+            continue;
+        }
+        if (length != 0 && argument.length != length)
+        {
+            errors_.push_back("Arguments of '" + name + "' have mismatched types");
+            return Type{TypeKind::Error, nullptr};
+        }
+        length = argument.length;
+    }
+
+    auto elementOf = [](const Type &type) {
+        return type.kind == TypeKind::Field ? type.elementType->kind : type.kind;
+    };
+
+    // select's mask is separate from the two values it picks between
+    std::size_t firstValue = name == "select" ? 1 : 0;
+    if (name == "select" && elementOf(arguments[0]) != TypeKind::Bool)
+    {
+        errors_.push_back("'select' requires a bool mask as its first argument");
+        return Type{TypeKind::Error, nullptr};
+    }
+
+    TypeKind element = elementOf(arguments[firstValue]);
+    for (std::size_t i = firstValue + 1; i < arguments.size(); i++)
+    {
+        if (elementOf(arguments[i]) != element)
+        {
+            errors_.push_back("Arguments of '" + name + "' have mismatched types");
+            return Type{TypeKind::Error, nullptr};
+        }
+    }
+
+    TypeKind resultElement = element;
+    if (name == "abs" || name == "min" || name == "max" || name == "clamp")
+    {
+        if (element != TypeKind::Int && element != TypeKind::Float)
+        {
+            errors_.push_back("'" + name + "' requires integers or floats");
+            return Type{TypeKind::Error, nullptr};
+        }
+    }
+    else if (name == "sqrt" || name == "floor" || name == "ceil" || name == "round" || name == "to_i32")
+    {
+        if (element != TypeKind::Float)
+        {
+            errors_.push_back("'" + name + "' requires floats");
+            return Type{TypeKind::Error, nullptr};
+        }
+        resultElement = name == "to_i32" ? TypeKind::Int : TypeKind::Float;
+    }
+    else if (name == "to_f32")
+    {
+        if (element != TypeKind::Int)
+        {
+            errors_.push_back("'to_f32' requires integers");
+            return Type{TypeKind::Error, nullptr};
+        }
+        resultElement = TypeKind::Float;
+    }
+
+    if (length == 0)
+    {
+        return Type{resultElement, nullptr};
+    }
+
+    if (!checkInRuleset())
+    {
+        return Type{TypeKind::Error, nullptr};
+    }
+
+    Type result{TypeKind::Field, std::make_shared<Type>(Type{resultElement, nullptr})};
+    result.length = length;
+    return result;
 }
 
 // reductions combine every element of a field into one uniform
@@ -316,6 +459,11 @@ bool SemanticAnalyser::isReduction(const std::string &name)
 
 Type SemanticAnalyser::analyseBuiltinCall(const CallExpr &call)
 {
+    if (isElementwiseBuiltin(call.name))
+    {
+        return analyseElementwiseBuiltin(call);
+    }
+
     // length(field) -> integer: the length is part of the type, so this is a constant
     // reductions for rulsewts:
     //   sum, min_of, max_of: field of integers or floats -> the element type
@@ -933,6 +1081,17 @@ Type SemanticAnalyser::inferExpressionType(const Expression &expression)
             return analyseFieldBinary(binary->op, leftType, rightType);
         }
 
+        // and / or take two bools and give a bool
+        if (binary->op == BinaryOperator::And || binary->op == BinaryOperator::Or)
+        {
+            if (leftType.kind != TypeKind::Bool || rightType.kind != TypeKind::Bool)
+            {
+                errors_.push_back("Logical operators require bool operands");
+                return Type{TypeKind::Error, nullptr};
+            }
+            return Type{TypeKind::Bool, nullptr};
+        }
+
         // both sides must have matching types
         if (!sameType(leftType, rightType))
         {
@@ -1052,6 +1211,26 @@ Type SemanticAnalyser::inferExpressionType(const Expression &expression)
             }
 
             // negation returns the same type as the operand
+            return operandType;
+        }
+
+        // not b, or not m for every element of a bool field
+        if (unary->op == UnaryOperator::Not)
+        {
+            bool isField = operandType.kind == TypeKind::Field;
+            TypeKind element = isField ? operandType.elementType->kind : operandType.kind;
+
+            if (element != TypeKind::Bool)
+            {
+                errors_.push_back("'not' requires a bool operand");
+                return Type{TypeKind::Error, nullptr};
+            }
+
+            if (isField && !checkInRuleset())
+            {
+                return Type{TypeKind::Error, nullptr};
+            }
+
             return operandType;
         }
 
@@ -1198,6 +1377,16 @@ Type SemanticAnalyser::analyseFieldBinary(
 
     switch (op)
     {
+    // m and n, m or true: element-wise on bool masks
+    case BinaryOperator::And:
+    case BinaryOperator::Or:
+        if (element.kind != TypeKind::Bool)
+        {
+            errors_.push_back("Logical operators require bool operands");
+            return Type{TypeKind::Error, nullptr};
+        }
+        return field;
+
     case BinaryOperator::Add:
     case BinaryOperator::Subtract:
     case BinaryOperator::Multiply:

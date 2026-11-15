@@ -63,9 +63,21 @@ public:
     void f32LessThanOrEqual();
     void f32GreaterThanOrEqual();
 
+    void f32Absolute();
+    void f32Minimum();
+    void f32Maximum();
+    void f32SquareRoot();
+    void f32Floor();
+    void f32Ceiling();
+    void f32Nearest();  // rounds half to even, e.g. 2.5 -> 2
+
+    // pops a, b, condition -> a if condition is non-zero, else b
+    void select();
+
     // conversions
     void f32ConvertFromSignedI32();
-    void i32TruncateFromSignedF32();
+    void i32TruncateFromSignedF32();            // traps on NaN or out of range
+    void i32SaturatingTruncateFromSignedF32();  // NaN -> 0, out of range -> INT_MIN / INT_MAX
 
     // memory management (for fields)
     // offste is a constant byte offset added to the address on the stack
@@ -135,6 +147,8 @@ public:
     void beginBlock(const std::string &label = "");
     void beginLoop(const std::string &label = "");
     void beginIf(const std::string &label = "");
+    // an if that leaves one value on the stack: both branches must push it
+    void beginIfWithResult(WatType result);
     void beginElse();
     void end();
     void branch(const std::string &label);
