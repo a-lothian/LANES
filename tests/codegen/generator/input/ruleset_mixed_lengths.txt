@@ -1,0 +1,5 @@
+// the fused loop has one chunk count, so its fields must all have the same length
+ruleset mix(a: field<f32, 4>, b: field<f32, 8>) -> field<f32, 8> {
+    let x = a * 2.0;
+    return b * 2.0;
+}

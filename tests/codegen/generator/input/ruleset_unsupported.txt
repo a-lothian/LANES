@@ -1,4 +1,7 @@
-// rulesets compile, but element-wise field operations need SIMD lowering (not implemented yet)
-ruleset step(x: field<f32, 4>) -> field<f32, 4> {
-    return x * 2.0;
+// a ruleset with field operations is one straight-line loop body, so it cannot branch yet
+ruleset step(x: field<f32, 4>, s: f32) -> field<f32, 4> {
+    if s > 0.0 {
+        return x * s;
+    }
+    return x;
 }

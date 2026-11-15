@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <stdexcept>
 
+static bool assignsTo(const Statement &statement, const std::string &name);
+
 bool CodeGenerator::generate(const Program &program)
 {
     reset();
@@ -15,7 +17,7 @@ bool CodeGenerator::generate(const Program &program)
         if (function != nullptr)
         {
             generateCallable(function->name, function->parameters,
-                             function->returnType, function->body.get());
+                             function->returnType, function->body.get(), false);
             continue;
         }
 
@@ -25,7 +27,7 @@ bool CodeGenerator::generate(const Program &program)
         if (ruleset != nullptr)
         {
             generateCallable(ruleset->name, ruleset->parameters,
-                             ruleset->returnType, ruleset->body.get());
+                             ruleset->returnType, ruleset->body.get(), true);
             continue;
         }
 
@@ -55,6 +57,7 @@ void CodeGenerator::reset() {
     memory_ = MemoryLayout();
     importedFunctions_.clear();
     hostReadsMemory_ = false;
+    vector_ = VectorState();
 }
 
 // host functions are imported as `(import "env" "<name>" (func $__<name> ...))`
@@ -133,6 +136,20 @@ std::string CodeGenerator::declareParameter(const std::string &name)
     return name;
 }
 
+// x then x_1, x_2, ... etc.
+std::string CodeGenerator::uniqueLocalName(const std::string &name)
+{
+    std::string candidate = name;
+    int suffix = 1;
+    while (usedLocalNames_.count(candidate) != 0)
+    {
+        candidate = name + "_" + std::to_string(suffix++);
+    }
+
+    usedLocalNames_.insert(candidate);
+    return candidate;
+}
+
 // declares a local and returns the unique WAT name chosen for it
 std::string CodeGenerator::declareLocal(const std::string &name, const Type &type)
 {
@@ -142,18 +159,22 @@ std::string CodeGenerator::declareLocal(const std::string &name, const Type &typ
         return name;
     }
 
-    // x then x_1, x_2, ... etc.
-    std::string candidate = name;
-    int suffix = 1;
-    while (usedLocalNames_.count(candidate) != 0)
-    {
-        candidate = name + "_" + std::to_string(suffix++);
-    }
+    return declareLocal(name, watType);
+}
 
-    usedLocalNames_.insert(candidate);
+std::string CodeGenerator::declareLocal(const std::string &name, WatType type)
+{
+    std::string candidate = uniqueLocalName(name);
     scopes_.back()[name] = candidate;
-    function_->addLocal(candidate, watType);
+    function_->addLocal(candidate, type);
+    return candidate;
+}
 
+// user names cannot start with `__` so will never clash with a variable
+std::string CodeGenerator::newLocal(const std::string &base, WatType type)
+{
+    std::string candidate = uniqueLocalName("__" + base);
+    function_->addLocal(candidate, type);
     return candidate;
 }
 
@@ -173,13 +194,552 @@ std::string CodeGenerator::lookupLocal(const std::string &name)
 }
 
 
+// true if the expression contains an element-wise field operation (a + b, -a, a < 2.0)
+static bool usesFieldOperations(const Expression &expression)
+{
+    if (const BinaryExpr *binary = dynamic_cast<const BinaryExpr *>(&expression))
+    {
+        return binary->resolvedType.kind == TypeKind::Field ||
+               binary->left->resolvedType.kind == TypeKind::Field ||
+               usesFieldOperations(*binary->left) || usesFieldOperations(*binary->right);
+    }
+
+    if (const UnaryExpr *unary = dynamic_cast<const UnaryExpr *>(&expression))
+    {
+        return unary->resolvedType.kind == TypeKind::Field || usesFieldOperations(*unary->operand);
+    }
+
+    if (const CallExpr *call = dynamic_cast<const CallExpr *>(&expression))
+    {
+        for (const std::unique_ptr<Expression> &argument : call->arguments)
+        {
+            if (usesFieldOperations(*argument))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (const FieldLiteralExpr *literal = dynamic_cast<const FieldLiteralExpr *>(&expression))
+    {
+        for (const std::unique_ptr<Expression> &element : literal->elements)
+        {
+            if (usesFieldOperations(*element))
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+static bool usesFieldOperations(const Statement &statement)
+{
+    if (const LetStatement *let = dynamic_cast<const LetStatement *>(&statement))
+    {
+        return let->initializer != nullptr && usesFieldOperations(*let->initializer);
+    }
+
+    if (const AssignmentStatement *assignment = dynamic_cast<const AssignmentStatement *>(&statement))
+    {
+        return usesFieldOperations(*assignment->value);
+    }
+
+    if (const ReturnStatement *returnStatement = dynamic_cast<const ReturnStatement *>(&statement))
+    {
+        return returnStatement->value != nullptr && usesFieldOperations(*returnStatement->value);
+    }
+
+    if (const ExpressionStatement *expression = dynamic_cast<const ExpressionStatement *>(&statement))
+    {
+        return expression->expression != nullptr && usesFieldOperations(*expression->expression);
+    }
+
+    if (const BlockStatement *block = dynamic_cast<const BlockStatement *>(&statement))
+    {
+        for (const std::unique_ptr<Statement> &inner : block->statements)
+        {
+            if (usesFieldOperations(*inner))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (const IfStatement *ifStatement = dynamic_cast<const IfStatement *>(&statement))
+    {
+        return usesFieldOperations(*ifStatement->condition) ||
+               (ifStatement->thenBlock != nullptr && usesFieldOperations(*ifStatement->thenBlock)) ||
+               (ifStatement->elseBranch != nullptr && usesFieldOperations(*ifStatement->elseBranch));
+    }
+
+    if (const WhileStatement *whileStatement = dynamic_cast<const WhileStatement *>(&statement))
+    {
+        return usesFieldOperations(*whileStatement->condition) ||
+               (whileStatement->body != nullptr && usesFieldOperations(*whileStatement->body));
+    }
+
+    return false;
+}
+
+// float fields use f32x4 lanes, integer fields and bool masks use i32x4
+static LaneType laneOf(TypeKind element)
+{
+    return element == TypeKind::Float ? LaneType::F32x4 : LaneType::I32x4;
+}
+
+// the lane type of a value inside the loop
+static LaneType laneOf(const Type &type)
+{
+    if (type.kind == TypeKind::Field && type.elementType != nullptr)
+    {
+        return laneOf(type.elementType->kind);
+    }
+    return laneOf(type.kind);
+}
+
+void CodeGenerator::vectorError(const std::string &reason)
+{
+    addError("Ruleset '" + vector_.ruleset + "' cannot be vectorised: " + reason);
+}
+
+// the loop has one chunk count so every field it touches must have the same length
+void CodeGenerator::checkVectorLength(std::uint32_t length)
+{
+    if (vector_.length == 0)
+    {
+        vector_.length = length;
+    }
+    else if (vector_.length != length && !vector_.lengthMismatchReported)
+    {
+        vector_.lengthMismatchReported = true;
+        vectorError("fields of different lengths (" + std::to_string(vector_.length) +
+                    " and " + std::to_string(length) + ") are used together");
+    }
+}
+
+// a field parameter is read in the loop through a v128 local that is loaded at the
+// start of every chunk; assigning to the parameter only changes that local, so the
+// caller's field is never written
+std::string CodeGenerator::parameterChunk(const std::string &parameter)
+{
+    for (const auto &[name, chunk] : vector_.parameterChunks)
+    {
+        if (name == parameter)
+        {
+            return chunk;
+        }
+    }
+
+    std::string chunk = newLocal(parameter, WatType::V128);
+    vector_.parameterChunks.emplace_back(parameter, chunk);
+    return chunk;
+}
+
+// a ruleset with field operations becomes one fused loop over its fields, 4 elements
+// (one v128) at a time. e.g. with x: field<f32, 8> and k: f32
+//
+//   let y = x * k;          k is splatted once:   local.get $k  f32x4.splat  local.set $__splat
+//   return y + 1.0;         1.0 likewise
+//                           loop $chunk_loop      (offset = 0, 16)
+//                             x + offset  v128.load  local.set $__x
+//                             local.get $__x  local.get $__splat  f32x4.mul  local.set $y
+//                             result + offset  (y + 1.0)  v128.store
+//                             offset += 16, repeat while offset < 32
+//                           end
+//                           i32.const <result>  return
+//
+// scalar statements run before the loop in order, so a uniform used by a field
+// statement is splatted with its value at that point in the body
+void CodeGenerator::generateVectorisedRuleset(const std::string &name,
+                                              const std::vector<Parameter> &parameters,
+                                              const Type &returnType,
+                                              const BlockStatement &body)
+{
+    vector_ = VectorState();
+    vector_.active = true;
+    vector_.ruleset = name;
+
+    for (const Parameter &parameter : parameters)
+    {
+        if (parameter.type.kind == TypeKind::Field && assignsTo(body, parameter.name))
+        {
+            vector_.assignedParameters.insert(parameter.name);
+        }
+    }
+
+    const ReturnStatement *finalReturn = nullptr;
+    if (returnType.kind == TypeKind::Field)
+    {
+        checkVectorLength(returnType.length);
+        if (!reserveField(returnType, vector_.result, "result of '" + name + "'"))
+        {
+            vector_ = VectorState();
+            return;
+        }
+    }
+
+    // pass 1: everything that happens once, before the loop
+    std::size_t errorsBefore = errors_.size();
+    for (std::size_t i = 0; i < body.statements.size(); i++)
+    {
+        bool isLast = i + 1 == body.statements.size();
+        if (!prepareVectorStatement(*body.statements[i], isLast))
+        {
+            break;
+        }
+        if (isLast)
+        {
+            finalReturn = dynamic_cast<const ReturnStatement *>(body.statements[i].get());
+        }
+    }
+
+    if (errors_.size() != errorsBefore)
+    {
+        vector_ = VectorState();
+        return;
+    }
+
+    // pass 2: the loop, one iteration per chunk. locals start at zero, so the offset does too
+    if (vector_.length != 0)
+    {
+        vector_.offset = newLocal("offset", WatType::I32);
+        const std::string &offset = vector_.offset;
+        std::uint32_t end = (vector_.length + 3) / 4 * CHUNK_BYTES;
+
+        function_->beginLoop("chunk_loop");
+
+        for (const auto &[parameter, chunk] : vector_.parameterChunks)
+        {
+            function_->localGet(parameter);
+            function_->localGet(offset);
+            function_->i32Addition();
+            function_->v128LoadFromMemory();
+            function_->localSet(chunk);
+        }
+
+        for (const std::unique_ptr<Statement> &statement : body.statements)
+        {
+            const ReturnStatement *returnStatement = dynamic_cast<const ReturnStatement *>(statement.get());
+            if (returnStatement != nullptr && returnType.kind == TypeKind::Field)
+            {
+                function_->i32Constant(static_cast<int>(vector_.result));
+                function_->localGet(offset);
+                function_->i32Addition();
+                generateVectorExpression(*returnStatement->value);
+                function_->v128StoreToMemory();
+                continue;
+            }
+
+            generateVectorStatement(*statement);
+        }
+
+        function_->localGet(offset);
+        function_->i32Constant(static_cast<int>(CHUNK_BYTES));
+        function_->i32Addition();
+        function_->localTee(offset);
+        function_->i32Constant(static_cast<int>(end));
+        function_->i32SignedLessThan();
+        function_->branchIf("chunk_loop");
+        function_->end();
+    }
+
+    // the result: a field is the block the loop wrote, a scalar is computed after the loop
+    if (finalReturn != nullptr)
+    {
+        if (returnType.kind == TypeKind::Field)
+        {
+            function_->i32Constant(static_cast<int>(vector_.result));
+        }
+        else if (finalReturn->value != nullptr)
+        {
+            vector_.active = false; // nothing in a scalar result refers to the loop's values
+            generateExpression(*finalReturn->value);
+        }
+        function_->returnFromFunction();
+    }
+
+    vector_ = VectorState();
+}
+
+// pass 1 for one statement; returns false if the statement cannot be vectorised
+bool CodeGenerator::prepareVectorStatement(const Statement &statement, bool isLast)
+{
+    if (const LetStatement *let = dynamic_cast<const LetStatement *>(&statement))
+    {
+        if (let->resolvedType.kind != TypeKind::Field)
+        {
+            generateLet(*let);
+            return true;
+        }
+
+        checkVectorLength(let->resolvedType.length);
+        if (let->initializer != nullptr)
+        {
+            prepareVectorExpression(*let->initializer);
+        }
+
+        // declared after the initializer, so "let y = y * 2.0" reads the outer y
+        std::string watName = declareLocal(let->name, WatType::V128);
+        vector_.vectorLocals.insert(watName);
+        vector_.targets[let] = watName;
+        return true;
+    }
+
+    if (const AssignmentStatement *assignment = dynamic_cast<const AssignmentStatement *>(&statement))
+    {
+        if (assignment->value->resolvedType.kind != TypeKind::Field)
+        {
+            generateStatement(*assignment);
+            return true;
+        }
+
+        prepareVectorExpression(*assignment->value);
+
+        std::string watName = lookupLocal(assignment->name);
+        vector_.targets[assignment] =
+            vector_.vectorLocals.count(watName) != 0 ? watName : parameterChunk(watName);
+        return true;
+    }
+
+    if (const ExpressionStatement *expression = dynamic_cast<const ExpressionStatement *>(&statement))
+    {
+        if (expression->expression == nullptr)
+        {
+            return true;
+        }
+
+        if (expression->expression->resolvedType.kind != TypeKind::Field)
+        {
+            generateStatement(*expression);
+            return true;
+        }
+
+        prepareVectorExpression(*expression->expression);
+        return true;
+    }
+
+    if (const ReturnStatement *returnStatement = dynamic_cast<const ReturnStatement *>(&statement))
+    {
+        if (!isLast)
+        {
+            vectorError("return must be the last statement");
+            return false;
+        }
+
+        // a scalar result is generated after the loop
+        if (returnStatement->value != nullptr &&
+            returnStatement->value->resolvedType.kind == TypeKind::Field)
+        {
+            prepareVectorExpression(*returnStatement->value);
+        }
+        return true;
+    }
+
+    if (dynamic_cast<const IfStatement *>(&statement) != nullptr)
+    {
+        vectorError("if statements are not supported in rulesets with field operations");
+    }
+    else if (dynamic_cast<const WhileStatement *>(&statement) != nullptr)
+    {
+        vectorError("while loops are not supported in rulesets with field operations");
+    }
+    else if (dynamic_cast<const BlockStatement *>(&statement) != nullptr)
+    {
+        vectorError("nested blocks are not supported in rulesets with field operations");
+    }
+    else
+    {
+        vectorError("unsupported statement");
+    }
+    return false;
+}
+
+// pass 1 for a field expression: finds the parts that are evaluated once before the loop
+void CodeGenerator::prepareVectorExpression(const Expression &expression)
+{
+    const Type &type = expression.resolvedType;
+
+    // a uniform (scalar) operand is computed now and splatted to every lane
+    // bools become masks first: 0 - b gives -1 for true and 0 for false
+    if (type.kind != TypeKind::Field)
+    {
+        if (type.kind == TypeKind::Bool)
+        {
+            function_->i32Constant(0);
+            generateExpression(expression);
+            function_->i32Subtraction();
+        }
+        else
+        {
+            generateExpression(expression);
+        }
+
+        function_->vectorSplat(laneOf(type.kind));
+        std::string splat = newLocal("splat", WatType::V128);
+        function_->localSet(splat);
+        vector_.splats[&expression] = splat;
+        return;
+    }
+
+    checkVectorLength(type.length);
+
+    if (const BinaryExpr *binary = dynamic_cast<const BinaryExpr *>(&expression))
+    {
+        prepareVectorExpression(*binary->left);
+        prepareVectorExpression(*binary->right);
+        return;
+    }
+
+    if (const UnaryExpr *unary = dynamic_cast<const UnaryExpr *>(&expression))
+    {
+        prepareVectorExpression(*unary->operand);
+        return;
+    }
+
+    if (const VariableExpr *variable = dynamic_cast<const VariableExpr *>(&expression))
+    {
+        std::string watName = lookupLocal(variable->name);
+        vector_.variables[variable] =
+            vector_.vectorLocals.count(watName) != 0 ? watName : parameterChunk(watName);
+        return;
+    }
+
+    // a literal or a call gives the address of a whole field in memory,
+    // which the loop reads one chunk at a time
+    if (dynamic_cast<const FieldLiteralExpr *>(&expression) != nullptr ||
+        dynamic_cast<const CallExpr *>(&expression) != nullptr)
+    {
+        generateExpression(expression);
+        std::string address = newLocal("field", WatType::I32);
+        function_->localSet(address);
+        vector_.addresses[&expression] = address;
+        return;
+    }
+
+    vectorError("unsupported field expression");
+}
+
+// pass 2 for one statement, inside the loop: only field values do work here
+void CodeGenerator::generateVectorStatement(const Statement &statement)
+{
+    if (const LetStatement *let = dynamic_cast<const LetStatement *>(&statement))
+    {
+        if (let->resolvedType.kind == TypeKind::Field && let->initializer != nullptr)
+        {
+            generateVectorExpression(*let->initializer);
+            function_->localSet(vector_.targets.at(let));
+        }
+        return;
+    }
+
+    if (const AssignmentStatement *assignment = dynamic_cast<const AssignmentStatement *>(&statement))
+    {
+        if (assignment->value->resolvedType.kind == TypeKind::Field)
+        {
+            generateVectorExpression(*assignment->value);
+            function_->localSet(vector_.targets.at(assignment));
+        }
+        return;
+    }
+
+    // a field expression statement has no effect on the chunk (its calls already ran)
+}
+
+// pass 2 for a field expression: pushes the v128 for the current chunk
+void CodeGenerator::generateVectorExpression(const Expression &expression)
+{
+    auto splat = vector_.splats.find(&expression);
+    if (splat != vector_.splats.end())
+    {
+        function_->localGet(splat->second);
+        return;
+    }
+
+    auto address = vector_.addresses.find(&expression);
+    if (address != vector_.addresses.end())
+    {
+        function_->localGet(address->second);
+        function_->localGet(vector_.offset);
+        function_->i32Addition();
+        function_->v128LoadFromMemory();
+        return;
+    }
+
+    auto variable = vector_.variables.find(&expression);
+    if (variable != vector_.variables.end())
+    {
+        function_->localGet(variable->second);
+        return;
+    }
+
+    if (const UnaryExpr *unary = dynamic_cast<const UnaryExpr *>(&expression))
+    {
+        generateVectorExpression(*unary->operand);
+        function_->vectorNegation(laneOf(unary->operand->resolvedType));
+        return;
+    }
+
+    const BinaryExpr *binary = dynamic_cast<const BinaryExpr *>(&expression);
+    if (binary == nullptr)
+    {
+        vectorError("unsupported field expression");
+        return;
+    }
+
+    generateVectorExpression(*binary->left);
+    generateVectorExpression(*binary->right);
+
+    // the lanes follow the operands (a comparison of floats is f32x4 even though
+    // it produces a bool mask); a uniform operand was splatted with the same lanes
+    LaneType lanes = laneOf(binary->left->resolvedType);
+
+    switch (binary->op)
+    {
+    case BinaryOperator::Add:
+        function_->vectorAddition(lanes);
+        return;
+    case BinaryOperator::Subtract:
+        function_->vectorSubtraction(lanes);
+        return;
+    case BinaryOperator::Multiply:
+        function_->vectorMultiplication(lanes);
+        return;
+    case BinaryOperator::Divide: // semantic analysis allows float fields only
+        function_->f32x4Division();
+        return;
+    case BinaryOperator::Equal:
+        function_->vectorEqual(lanes);
+        return;
+    case BinaryOperator::NotEqual:
+        function_->vectorNotEqual(lanes);
+        return;
+    case BinaryOperator::LessThan:
+        function_->vectorLessThan(lanes);
+        return;
+    case BinaryOperator::GreaterThan:
+        function_->vectorGreaterThan(lanes);
+        return;
+    case BinaryOperator::LessThanEqual:
+        function_->vectorLessThanOrEqual(lanes);
+        return;
+    case BinaryOperator::GreaterThanEqual:
+        function_->vectorGreaterThanOrEqual(lanes);
+        return;
+    }
+}
+
 // functions and rulesets compile the same way: a WAT function with the same name,
 // exported so a JavaScript host can call it. field parameters and results are
 // i32 addresses (see generateFieldLet / generateCall for how they are copied)
 void CodeGenerator::generateCallable(const std::string &name,
                                      const std::vector<Parameter> &parameters,
                                      const Type &returnType,
-                                     const BlockStatement *body)
+                                     const BlockStatement *body,
+                                     bool isRuleset)
 {
     std::vector<WatParam> params;
     bool valid = true;
@@ -231,10 +791,14 @@ void CodeGenerator::generateCallable(const std::string &name,
         declareParameter(param.name);
     }
 
-    copyAssignedFieldParameters(parameters, body);
-
-    if (body != nullptr)
+    if (isRuleset && body != nullptr && usesFieldOperations(*body))
     {
+        generateVectorisedRuleset(name, parameters, returnType, *body);
+    }
+    else if (body != nullptr)
+    {
+        copyAssignedFieldParameters(parameters, body);
+
         generateBlock(*body, false);
 
         // WAT checks that the stack holds the result at the end of the function
@@ -575,9 +1139,15 @@ void CodeGenerator::writeFieldLiteral(const FieldLiteralExpr &literal, std::uint
     }
 }
 
+// blocks are padded to a whole number of 16 byte chunks, so a vectorised ruleset
+// can load and store full v128s without a scalar tail: field<f32, 6> takes 32 bytes,
+// and lanes past the length hold unused values that nothing reads
 bool CodeGenerator::reserveField(const Type &type, std::uint32_t &address, const std::string &context)
 {
-    if (!memory_.reserve(std::uint64_t(type.length) * FIELD_ELEMENT_BYTES, address))
+    std::uint64_t bytes = std::uint64_t(type.length) * FIELD_ELEMENT_BYTES;
+    bytes = (bytes + CHUNK_BYTES - 1) / CHUNK_BYTES * CHUNK_BYTES;
+
+    if (!memory_.reserve(bytes, address))
     {
         addError("Field of length " + std::to_string(type.length) +
                  " does not fit in memory (" + context + ")");
@@ -780,6 +1350,36 @@ void CodeGenerator::generatePrint(const CallExpr &call)
 
 void CodeGenerator::generateCall(const CallExpr &call)
 {
+    // in a vectorised ruleset, calls run before the loop on whole fields in memory,
+    // so a field argument cannot be a value that only exists chunk by chunk in the loop
+    if (vector_.active)
+    {
+        for (const std::unique_ptr<Expression> &argument : call.arguments)
+        {
+            if (argument->resolvedType.kind != TypeKind::Field ||
+                dynamic_cast<const FieldLiteralExpr *>(argument.get()) != nullptr ||
+                dynamic_cast<const CallExpr *>(argument.get()) != nullptr)
+            {
+                continue;
+            }
+
+            const VariableExpr *variable = dynamic_cast<const VariableExpr *>(argument.get());
+            if (variable != nullptr)
+            {
+                std::string watName = lookupLocal(variable->name);
+                if (vector_.vectorLocals.count(watName) == 0 &&
+                    vector_.assignedParameters.count(watName) == 0)
+                {
+                    continue;
+                }
+            }
+
+            vectorError("a field passed to '" + call.name +
+                        "' must be a literal, a call, or a parameter that is never assigned");
+            return;
+        }
+    }
+
     if (call.name == "print")
     {
         generatePrint(call);
@@ -802,9 +1402,10 @@ void CodeGenerator::generateUnary(const UnaryExpr &unary)
         return;
     }
 
+    // field operations are compiled by generateVectorExpression
     if (unary.operand->resolvedType.kind == TypeKind::Field)
     {
-        addError("Field operations cannot be compiled yet (ruleset SIMD lowering is not implemented)");
+        addError("Field operation outside a vectorised ruleset; run semantic analysis first");
         return;
     }
 
@@ -829,12 +1430,12 @@ void CodeGenerator::generateUnary(const UnaryExpr &unary)
 
 void CodeGenerator::generateBinary(const BinaryExpr &binary)
 {
-    // checked before generating either side: in 2.0 * a the left side is a scalar,
-    // so the scalar instructions below would otherwise be used on a field address
+    // field operations are compiled by generateVectorExpression
+    // (checked before generating either side: in 2.0 * a the left side is a scalar)
     if (binary.left->resolvedType.kind == TypeKind::Field ||
         binary.right->resolvedType.kind == TypeKind::Field)
     {
-        addError("Field operations cannot be compiled yet (ruleset SIMD lowering is not implemented)");
+        addError("Field operation outside a vectorised ruleset; run semantic analysis first");
         return;
     }
 

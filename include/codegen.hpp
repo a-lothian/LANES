@@ -45,7 +45,40 @@ private:
     void requireImport(const std::string &name, const std::vector<WatType> &params);
 
     void generateCallable(const std::string &name, const std::vector<Parameter> &parameters,
-                          const Type &returnType, const BlockStatement *body);
+                          const Type &returnType, const BlockStatement *body, bool isRuleset);
+
+    // SIMD lowering of a ruleset that uses element-wise field operations
+    // pass 1 (before the loop): scalar statements, uniforms splatted into v128 locals,
+    // field literals and calls evaluated to addresses
+    // pass 2 (the loop): one iteration per 16 byte chunk, field values are v128 locals
+    void generateVectorisedRuleset(const std::string &name, const std::vector<Parameter> &parameters,
+                                   const Type &returnType, const BlockStatement &body);
+    bool prepareVectorStatement(const Statement &statement, bool isLast);
+    void prepareVectorExpression(const Expression &expression);
+    void generateVectorExpression(const Expression &expression);
+    void generateVectorStatement(const Statement &statement);
+    void checkVectorLength(std::uint32_t length);
+    std::string parameterChunk(const std::string &parameter);
+    void vectorError(const std::string &reason);
+
+    struct VectorState
+    {
+        bool active = false;
+        std::string ruleset;
+        std::uint32_t length = 0;  // every field in the loop has this length
+        std::uint32_t result = 0;  // address of the returned field's block
+        std::string offset;        // i32 local; byte offset of the current chunk
+        bool lengthMismatchReported = false;
+
+        std::unordered_map<const Expression *, std::string> splats;     // uniform -> v128 local
+        std::unordered_map<const Expression *, std::string> addresses;  // literal or call -> i32 address local
+        std::unordered_map<const Expression *, std::string> variables;  // field variable -> v128 local
+        std::unordered_map<const Statement *, std::string> targets;     // let or assignment -> v128 local
+        std::unordered_set<std::string> vectorLocals;                   // field lets
+        std::unordered_set<std::string> assignedParameters;             // field parameters assigned in the body
+        std::vector<std::pair<std::string, std::string>> parameterChunks;  // parameter -> v128 local, loaded each chunk
+    };
+    VectorState vector_;
 
     void generateBlock(const BlockStatement &block, bool createScope = true);
     void generateStatement(const Statement &statement);
@@ -70,6 +103,8 @@ private:
 
     // every field element (i32, f32 or bool) takes 4 bytes
     static constexpr std::uint32_t FIELD_ELEMENT_BYTES = 4;
+    // a v128 holds 4 elements. field blocks are padded to whole chunks
+    static constexpr std::uint32_t CHUNK_BYTES = 16;
     void generateUnary(const UnaryExpr &unary);
     void generateBinary(const BinaryExpr &binary);
 
@@ -77,6 +112,9 @@ private:
     void enterScope();
     void exitScope();
     std::string declareLocal(const std::string &name, const Type &type);
+    std::string declareLocal(const std::string &name, WatType type);
+    std::string newLocal(const std::string &base, WatType type);
+    std::string uniqueLocalName(const std::string &name);
     std::string declareParameter(const std::string &name);
     std::string lookupLocal(const std::string &name);
 

@@ -1,0 +1,87 @@
+// vectorised rulesets: element-wise operations run 4 lanes at a time
+
+// length 6 is two chunks; the second chunk's last 2 lanes are padding
+ruleset scale(x: field<f32, 6>, k: f32) -> field<f32, 6> {
+    let y = x * k;
+    return y + 1.0;
+}
+
+ruleset above(x: field<i32, 4>, limit: integer) -> field<bool, 4> {
+    return -x < limit;
+}
+
+ruleset blend(a: field<f32, 4>, b: field<f32, 4>) -> field<f32, 4> {
+    return (a - b) / 2.0;
+}
+
+// k is splatted where it is used, so y sees 2 and the return sees 10
+ruleset order(x: field<i32, 4>) -> field<i32, 4> {
+    let k = 2;
+    let y = x * k;
+    k = 10;
+    return y + k;
+}
+
+// assigning to a parameter does not change the caller's field
+ruleset bump(x: field<i32, 5>) -> field<i32, 5> {
+    x = x + 1;
+    x = x * 2;
+    return x;
+}
+
+ruleset same(a: field<bool, 4>, b: field<bool, 4>) -> field<bool, 4> {
+    return a == b;
+}
+
+ruleset flip(a: field<bool, 4>) -> field<bool, 4> {
+    return a != true;
+}
+
+ruleset double(x: field<f32, 4>) -> field<f32, 4> {
+    return x * 2.0;
+}
+
+// the calls run before the loop, then their results are read chunk by chunk
+ruleset quintuple(x: field<f32, 4>) -> field<f32, 4> {
+    return double(double(x)) + x;
+}
+
+ruleset shift(x: field<i32, 4>) -> field<i32, 4> {
+    return x + [10, 20, 30, 40];
+}
+
+ruleset negate(x: field<f32, 1>) -> field<f32, 1> {
+    return -x;
+}
+
+// a scalar result is computed after the loop
+ruleset next(x: field<f32, 4>, n: integer) -> integer {
+    let y = x * 2.0;
+    return n + 1;
+}
+
+function main() -> integer {
+    print(scale([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 0.5));
+    print(above([1, -2, 3, -4], -2));
+    print(blend([10.0, 20.0, 30.0, 40.0], [2.0, 4.0, 6.0, 8.0]));
+    print(order([1, 2, 3, 4]));
+
+    let a = [1, 2, 3, 4, 5];
+    let b = bump(a);
+    print(a);
+    print(b);
+
+    print(same([true, false, true, false], [true, true, false, false]));
+    print(flip([true, false, true, false]));
+    print(quintuple([1.0, 2.0, 3.0, 4.0]));
+    print(shift([1, 2, 3, 4]));
+    print(negate([2.5]));
+    print(next([1.0, 2.0, 3.0, 4.0], 3));
+
+    // each call's result is copied, so p keeps its value after the second call
+    let p = scale([1.0, 1.0, 1.0, 1.0, 1.0, 1.0], 1.0);
+    let q = scale([1.0, 1.0, 1.0, 1.0, 1.0, 1.0], 2.0);
+    print(p);
+    print(q);
+    return 0;
+}

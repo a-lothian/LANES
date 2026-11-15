@@ -1,0 +1,1 @@
+codegen: Ruleset 'quad' cannot be vectorised: a field passed to 'double' must be a literal, a call, or a parameter that is never assigned
