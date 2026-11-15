@@ -9,6 +9,7 @@
 #include "semantic/run_recursion_test.h"
 #include "semantic/run_builtin_test.h"
 #include "semantic/run_field_operation_test.h"
+#include "semantic/run_ruleset_call_test.h"
 #include "exec/run_exec_test.h"
 
 int main()
@@ -25,6 +26,7 @@ int main()
     passing &= runRecursionTests();
     passing &= runBuiltinTests();
     passing &= runFieldOperationTests();
+    passing &= runRulesetCallTests();
     passing &= runExecTests();
 
     std::cout << "\nOverall Result: " << (passing ? "PASSED" : "FAILED") << "\n";

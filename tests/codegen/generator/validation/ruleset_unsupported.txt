@@ -1,1 +1,1 @@
-codegen: Ruleset 'step' cannot be compiled: ruleset code generation is not supported yet
+codegen: Field operations cannot be compiled yet (ruleset SIMD lowering is not implemented)

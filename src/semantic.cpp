@@ -168,34 +168,46 @@ static void forEachExpression(const Statement &statement,
     }
 }
 
-// true if the function's signature or any expression in its body has a field type
-// (field variables, literals, calls returning fields and field arguments all count)
-static bool usesFields(const FunctionDecl &function)
+// what the recursion check needs to know about one function or ruleset
+struct CallGraphNode
 {
-    if (function.returnType.kind == TypeKind::Field)
-    {
-        return true;
-    }
+    std::string name;
+    std::unordered_set<std::string> callees;  // functions and rulesets it calls directly
+    bool usesFields = false;                  // any field in its signature or body
+};
 
-    for (const Parameter &parameter : function.parameters)
+// works for FunctionDecl and RulesetDecl, which have the same members
+// (field variables, literals, calls returning fields and field arguments all count as field use)
+template <typename Declaration>
+static CallGraphNode describeCallable(const Declaration &declaration)
+{
+    CallGraphNode node;
+    node.name = declaration.name;
+    node.usesFields = declaration.returnType.kind == TypeKind::Field;
+
+    for (const Parameter &parameter : declaration.parameters)
     {
         if (parameter.type.kind == TypeKind::Field)
         {
-            return true;
+            node.usesFields = true;
         }
     }
 
-    bool found = false;
-    if (function.body != nullptr)
+    if (declaration.body != nullptr)
     {
-        forEachExpression(*function.body, [&](const Expression &expression) {
+        forEachExpression(*declaration.body, [&](const Expression &expression) {
             if (expression.resolvedType.kind == TypeKind::Field)
             {
-                found = true;
+                node.usesFields = true;
+            }
+            if (const CallExpr *call = dynamic_cast<const CallExpr *>(&expression))
+            {
+                node.callees.insert(call->name);
             }
         });
     }
-    return found;
+
+    return node;
 }
 
 // code generation gives every field variable, literal, copied parameter and call
@@ -204,38 +216,44 @@ static bool usesFields(const FunctionDecl &function)
 // (including mutual recursion, e.g. f calls g calls f) may not use fields at all
 void SemanticAnalyser::checkRecursiveFieldUse(const Program &program)
 {
-    // the functions each function calls directly only the first declaration of a name counts
-    std::unordered_map<std::string, std::unordered_set<std::string>> calls;
-    std::vector<const FunctionDecl *> functions;
+    // one node per function or ruleset, only the first declaration of a name counts
+    std::vector<CallGraphNode> nodes;
+    std::unordered_map<std::string, std::size_t> nodeIndex;
 
     for (const std::unique_ptr<Declaration> &declaration : program.declarations)
     {
-        const FunctionDecl *function = dynamic_cast<const FunctionDecl *>(declaration.get());
+        CallGraphNode node;
 
-        if (function == nullptr || calls.count(function->name) != 0)
+        if (const FunctionDecl *function = dynamic_cast<const FunctionDecl *>(declaration.get()))
+        {
+            node = describeCallable(*function);
+        }
+        else if (const RulesetDecl *ruleset = dynamic_cast<const RulesetDecl *>(declaration.get()))
+        {
+            node = describeCallable(*ruleset);
+        }
+        else
         {
             continue;
         }
 
-        functions.push_back(function);
-        std::unordered_set<std::string> &callees = calls[function->name];
-
-        if (function->body != nullptr)
+        if (nodeIndex.count(node.name) == 0)
         {
-            forEachExpression(*function->body, [&](const Expression &expression) {
-                if (const CallExpr *call = dynamic_cast<const CallExpr *>(&expression))
-                {
-                    callees.insert(call->name);
-                }
-            });
+            nodeIndex[node.name] = nodes.size();
+            nodes.push_back(std::move(node));
         }
     }
 
-    for (const FunctionDecl *function : functions)
+    for (const CallGraphNode &node : nodes)
     {
-        // a function is recursive if following calls from it leads back to it
+        if (!node.usesFields)
+        {
+            continue;
+        }
+
+        // recursive if following calls from it leads back to it
         std::unordered_set<std::string> visited;
-        std::vector<std::string> toVisit(calls[function->name].begin(), calls[function->name].end());
+        std::vector<std::string> toVisit(node.callees.begin(), node.callees.end());
         bool recursive = false;
 
         while (!toVisit.empty() && !recursive)
@@ -243,20 +261,21 @@ void SemanticAnalyser::checkRecursiveFieldUse(const Program &program)
             std::string name = toVisit.back();
             toVisit.pop_back();
 
-            if (name == function->name)
+            if (name == node.name)
             {
                 recursive = true;
             }
-            else if (visited.insert(name).second && calls.count(name) != 0)
+            else if (visited.insert(name).second && nodeIndex.count(name) != 0)
             {
-                toVisit.insert(toVisit.end(), calls[name].begin(), calls[name].end());
+                const CallGraphNode &callee = nodes[nodeIndex[name]];
+                toVisit.insert(toVisit.end(), callee.callees.begin(), callee.callees.end());
             }
         }
 
-        if (recursive && usesFields(*function))
+        if (recursive)
         {
             errors_.push_back(
-                "Recursive function cannot use fields: '" + function->name +
+                "Recursive function cannot use fields: '" + node.name +
                 "' (fields have fixed memory, so a recursive call would overwrite them)");
         }
     }
@@ -482,6 +501,14 @@ void SemanticAnalyser::analyseRuleset(const RulesetDecl &ruleset)
     if (ruleset.body != nullptr)
     {
         analyseBlock(*ruleset.body, false);
+    }
+
+    // a ruleset always produces a value, so it must end in a return
+    if (ruleset.returnType.kind != TypeKind::Void &&
+        (ruleset.body == nullptr || !alwaysReturns(*ruleset.body)))
+    {
+        errors_.push_back(
+            "Missing return statement in ruleset: '" + ruleset.name + "'");
     }
 
     // remove the ruleset parameter scope
@@ -998,8 +1025,9 @@ Type SemanticAnalyser::inferExpressionType(const Expression &expression)
             return Type{TypeKind::Error, nullptr};
         }
 
-        // make sure the name belongs to a function
-        if (symbol->kind != SymbolKind::Function)
+        // make sure the name belongs to a function or ruleset (both are called the same way)
+        if (symbol->kind != SymbolKind::Function &&
+            symbol->kind != SymbolKind::Ruleset)
         {
             errors_.push_back(
                 "Not a function: '" + call->name + "'");

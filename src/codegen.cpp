@@ -14,7 +14,8 @@ bool CodeGenerator::generate(const Program &program)
 
         if (function != nullptr)
         {
-            generateFunction(*function);
+            generateCallable(function->name, function->parameters,
+                             function->returnType, function->body.get());
             continue;
         }
 
@@ -23,9 +24,8 @@ bool CodeGenerator::generate(const Program &program)
 
         if (ruleset != nullptr)
         {
-            // TODO: IMPLEMENT RULESETS
-            addError("Ruleset '" + ruleset->name +
-                     "' cannot be compiled: ruleset code generation is not supported yet");
+            generateCallable(ruleset->name, ruleset->parameters,
+                             ruleset->returnType, ruleset->body.get());
             continue;
         }
 
@@ -173,12 +173,18 @@ std::string CodeGenerator::lookupLocal(const std::string &name)
 }
 
 
-void CodeGenerator::generateFunction(const FunctionDecl &function)
+// functions and rulesets compile the same way: a WAT function with the same name,
+// exported so a JavaScript host can call it. field parameters and results are
+// i32 addresses (see generateFieldLet / generateCall for how they are copied)
+void CodeGenerator::generateCallable(const std::string &name,
+                                     const std::vector<Parameter> &parameters,
+                                     const Type &returnType,
+                                     const BlockStatement *body)
 {
     std::vector<WatParam> params;
     bool valid = true;
 
-    for (const Parameter &parameter : function.parameters)
+    for (const Parameter &parameter : parameters)
     {
         WatType type;
         if (toWatType(parameter.type, type, "parameter '" + parameter.name + "'"))
@@ -192,10 +198,10 @@ void CodeGenerator::generateFunction(const FunctionDecl &function)
     }
 
     std::vector<WatType> results;
-    if (function.returnType.kind != TypeKind::Void)
+    if (returnType.kind != TypeKind::Void)
     {
         WatType type;
-        if (toWatType(function.returnType, type, "return type of '" + function.name + "'"))
+        if (toWatType(returnType, type, "return type of '" + name + "'"))
         {
             results.push_back(type);
         }
@@ -210,7 +216,7 @@ void CodeGenerator::generateFunction(const FunctionDecl &function)
         return;
     }
 
-    function_ = &module_.addFunction(function.name, params, results);
+    function_ = &module_.addFunction(name, params, results);
 
     // fresh naming state for each function
     scopes_.clear();
@@ -225,18 +231,18 @@ void CodeGenerator::generateFunction(const FunctionDecl &function)
         declareParameter(param.name);
     }
 
-    copyAssignedFieldParameters(function);
+    copyAssignedFieldParameters(parameters, body);
 
-    if (function.body != nullptr)
+    if (body != nullptr)
     {
-        generateBlock(*function.body, false);
+        generateBlock(*body, false);
 
         // WAT checks that the stack holds the result at the end of the function
-        if (function.returnType.kind != TypeKind::Void)
+        if (returnType.kind != TypeKind::Void)
         {
             bool endsInReturn =
-                !function.body->statements.empty() &&
-                dynamic_cast<const ReturnStatement *>(function.body->statements.back().get()) != nullptr;
+                !body->statements.empty() &&
+                dynamic_cast<const ReturnStatement *>(body->statements.back().get()) != nullptr;
 
             if (!endsInReturn)
             {
@@ -247,7 +253,7 @@ void CodeGenerator::generateFunction(const FunctionDecl &function)
 
     exitScope();
 
-    module_.exportFunction(function.name);
+    module_.exportFunction(name);
     function_ = nullptr;
 }
 
@@ -682,16 +688,17 @@ static bool assignsTo(const Statement &statement, const std::string &name)
 // a field parameter is the address of the caller's data
 // reading it is safe, but assigning to it would overwrite the caller's variable,
 // so a parameter the function assigns to is first copied into a block of its own
-void CodeGenerator::copyAssignedFieldParameters(const FunctionDecl &function)
+void CodeGenerator::copyAssignedFieldParameters(const std::vector<Parameter> &parameters,
+                                                const BlockStatement *body)
 {
-    if (function.body == nullptr)
+    if (body == nullptr)
     {
         return;
     }
 
-    for (const Parameter &parameter : function.parameters)
+    for (const Parameter &parameter : parameters)
     {
-        if (parameter.type.kind != TypeKind::Field || !assignsTo(*function.body, parameter.name))
+        if (parameter.type.kind != TypeKind::Field || !assignsTo(*body, parameter.name))
         {
             continue;
         }
@@ -795,6 +802,12 @@ void CodeGenerator::generateUnary(const UnaryExpr &unary)
         return;
     }
 
+    if (unary.operand->resolvedType.kind == TypeKind::Field)
+    {
+        addError("Field operations cannot be compiled yet (ruleset SIMD lowering is not implemented)");
+        return;
+    }
+
     switch (unary.operand->resolvedType.kind)
     {
     case TypeKind::Float:
@@ -816,6 +829,15 @@ void CodeGenerator::generateUnary(const UnaryExpr &unary)
 
 void CodeGenerator::generateBinary(const BinaryExpr &binary)
 {
+    // checked before generating either side: in 2.0 * a the left side is a scalar,
+    // so the scalar instructions below would otherwise be used on a field address
+    if (binary.left->resolvedType.kind == TypeKind::Field ||
+        binary.right->resolvedType.kind == TypeKind::Field)
+    {
+        addError("Field operations cannot be compiled yet (ruleset SIMD lowering is not implemented)");
+        return;
+    }
+
     generateExpression(*binary.left);
     generateExpression(*binary.right);
 

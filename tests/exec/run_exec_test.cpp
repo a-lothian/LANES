@@ -14,7 +14,7 @@
 #include "semantic.hpp"
 
 static std::vector<std::string> tests = {
-    "print_scalars.txt", "control_flow.txt", "field_print.txt", "field_values.txt"};
+    "print_scalars.txt", "control_flow.txt", "field_print.txt", "field_values.txt", "rulesets.txt"};
 
 static const std::string BUILD_DIRECTORY = "build/exec/";
 

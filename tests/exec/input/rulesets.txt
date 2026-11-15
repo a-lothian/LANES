@@ -1,0 +1,26 @@
+// rulesets are callable like functions (no field operations yet: SIMD lowering is the next step)
+ruleset scale(s: f32, k: f32) -> f32 {
+    return s * k;
+}
+
+ruleset twice(s: f32) -> f32 {
+    return scale(scale(s, 2.0), 1.0);
+}
+
+// field passes through unchanged; the caller gets its own copy
+ruleset pass(x: field<f32, 4>) -> field<f32, 4> {
+    let y = x;
+    return y;
+}
+
+function main() -> integer {
+    print(scale(1.5, 4.0));
+    print(twice(3.0));
+
+    let a = [1.0, 2.0, 3.0, 4.0];
+    let b = pass(a);
+    a = [9.0, 9.0, 9.0, 9.0];
+    print(b);
+    print(a);
+    return 0;
+}

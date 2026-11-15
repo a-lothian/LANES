@@ -44,7 +44,8 @@ private:
     std::unordered_set<std::string> importedFunctions_;
     void requireImport(const std::string &name, const std::vector<WatType> &params);
 
-    void generateFunction(const FunctionDecl &function);
+    void generateCallable(const std::string &name, const std::vector<Parameter> &parameters,
+                          const Type &returnType, const BlockStatement *body);
 
     void generateBlock(const BlockStatement &block, bool createScope = true);
     void generateStatement(const Statement &statement);
@@ -65,7 +66,7 @@ private:
     void generateFieldSource(const Expression &expression);
     void generateFieldLet(const LetStatement &statement);
     void generateFieldAssignment(const AssignmentStatement &assignment);
-    void copyAssignedFieldParameters(const FunctionDecl &function);
+    void copyAssignedFieldParameters(const std::vector<Parameter> &parameters, const BlockStatement *body);
 
     // every field element (i32, f32 or bool) takes 4 bytes
     static constexpr std::uint32_t FIELD_ELEMENT_BYTES = 4;
