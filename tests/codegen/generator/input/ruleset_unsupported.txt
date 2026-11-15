@@ -1,4 +1,4 @@
-// a ruleset with field operations is one straight-line loop body, so it cannot branch yet
+// rulesets are straight-line (one loop body), so they cannot branch: use select
 ruleset step(x: field<f32, 4>, s: f32) -> field<f32, 4> {
     if s > 0.0 {
         return x * s;

@@ -57,7 +57,7 @@ static bool rejects(const std::string &name, const std::string &source, const st
 static std::string ruleset(const std::string &statements)
 {
     return "ruleset r(a: field<f32, 4>, i: field<i32, 4>, m: field<bool, 4>, s: f32) -> integer { " +
-           statements + " return 0; }";
+           statements + " return sum(i); }";
 }
 
 static std::string function(const std::string &statements)

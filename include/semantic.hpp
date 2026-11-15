@@ -34,6 +34,7 @@ private:
     void analyseBlock(const BlockStatement &block, bool createScope = true);
     void analyseStatement(const Statement &statement);
     void analyseRuleset(const RulesetDecl &ruleset);
+    void checkRulesetContract(const RulesetDecl &ruleset);
     void analyseCondition(const Expression &condition, const std::string &statementName);
     Type analyseExpression(const Expression &expression);
     Type inferExpressionType(const Expression &expression);

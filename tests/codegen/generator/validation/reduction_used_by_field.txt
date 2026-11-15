@@ -1,1 +1,1 @@
-codegen: Ruleset 'normalise' cannot be vectorised: the result of a reduction cannot be used by field operations in the same ruleset (it would need a second loop)
+semantic: Ruleset 'normalise' returns a field, so it cannot use reductions (move the reduction into its own ruleset)

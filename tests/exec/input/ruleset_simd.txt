@@ -57,7 +57,7 @@ ruleset negate(x: field<f32, 1>) -> field<f32, 1> {
 // a scalar result is computed after the loop
 ruleset next(x: field<f32, 4>, n: integer) -> integer {
     let y = x * 2.0;
-    return n + 1;
+    return n + to_i32(sum(y));
 }
 
 function main() -> integer {

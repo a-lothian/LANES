@@ -61,7 +61,7 @@ static std::string ruleset(const std::string &statements)
 {
     return "ruleset r(m: field<bool, 4>, k: field<bool, 3>, a: field<f32, 4>, i: field<i32, 4>, "
            "b: bool, x: f32) -> integer { " +
-           statements + " return 0; }";
+           statements + " return sum(i); }";
 }
 
 bool runLogicalTests()

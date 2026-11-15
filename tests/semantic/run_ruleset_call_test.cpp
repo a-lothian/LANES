@@ -71,8 +71,8 @@ bool runRulesetCallTests()
                        SCALE + "function f(a: field<f32, 4>) -> integer { "
                                "  let b: field<f32, 4> = scale(a, 1.0); return 0; }");
     passing &= accepts("ruleset declared after its caller",
-                       "function main() -> f32 { return half(1.0); } "
-                       "ruleset half(s: f32) -> f32 { return s / 2.0; }");
+                       "function main() -> f32 { return half([1.0, 2.0]); } "
+                       "ruleset half(x: field<f32, 2>) -> f32 { return sum(x) / 2.0; }");
 
     passing &= rejects("too few arguments to a ruleset",
                        SCALE + "function f(a: field<f32, 4>) -> integer { scale(a); return 0; }",
@@ -87,14 +87,15 @@ bool runRulesetCallTests()
                        "ruleset r(x: field<f32, 4>) -> field<f32, 4> { let y = x; }",
                        "Missing return statement in ruleset: 'r'");
 
-    // rulesets are part of the recursion check
+    // a ruleset can only call rulesets and built-ins, so recursion through a function
+    // is reported as the call to the function
     passing &= rejects("recursion through a ruleset",
                        "function f(n: integer) -> integer { "
                        "  if n == 0 { return 0; } "
                        "  return g(n - 1); "
                        "} "
                        "ruleset g(n: integer) -> integer { let a = [n]; return f(n); }",
-                       "Recursive function cannot use fields: 'g'");
+                       "Ruleset 'g' cannot call function 'f'");
 
     std::cout << "Ruleset Call Semantic Test Result: " << (passing ? "PASSED" : "FAILED") << "\n";
     return passing;

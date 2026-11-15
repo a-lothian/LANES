@@ -13,6 +13,7 @@
 #include "semantic/run_reduction_test.h"
 #include "semantic/run_math_builtin_test.h"
 #include "semantic/run_logical_test.h"
+#include "semantic/run_ruleset_contract_test.h"
 #include "exec/run_exec_test.h"
 
 int main()
@@ -33,6 +34,7 @@ int main()
     passing &= runReductionTests();
     passing &= runMathBuiltinTests();
     passing &= runLogicalTests();
+    passing &= runRulesetContractTests();
     passing &= runExecTests();
 
     std::cout << "\nOverall Result: " << (passing ? "PASSED" : "FAILED") << "\n";

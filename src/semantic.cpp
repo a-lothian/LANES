@@ -174,6 +174,7 @@ struct CallGraphNode
     std::string name;
     std::unordered_set<std::string> callees;  // functions and rulesets it calls directly
     bool usesFields = false;                  // any field in its signature or body
+    bool isRuleset = false;
 };
 
 // works for FunctionDecl and RulesetDecl, which have the same members
@@ -231,6 +232,7 @@ void SemanticAnalyser::checkRecursiveFieldUse(const Program &program)
         else if (const RulesetDecl *ruleset = dynamic_cast<const RulesetDecl *>(declaration.get()))
         {
             node = describeCallable(*ruleset);
+            node.isRuleset = true;
         }
         else
         {
@@ -246,7 +248,8 @@ void SemanticAnalyser::checkRecursiveFieldUse(const Program &program)
 
     for (const CallGraphNode &node : nodes)
     {
-        if (!node.usesFields)
+        // rulesets have no if statements, so a recursive ruleset could never stop
+        if (!node.usesFields && !node.isRuleset)
         {
             continue;
         }
@@ -268,15 +271,26 @@ void SemanticAnalyser::checkRecursiveFieldUse(const Program &program)
             else if (visited.insert(name).second && nodeIndex.count(name) != 0)
             {
                 const CallGraphNode &callee = nodes[nodeIndex[name]];
+                // a ruleset calling a function is already an error (checkRulesetContract),
+                // so a ruleset is only recursive through other rulesets
+                if (node.isRuleset && !callee.isRuleset)
+                {
+                    continue;
+                }
                 toVisit.insert(toVisit.end(), callee.callees.begin(), callee.callees.end());
             }
         }
 
-        if (recursive)
+        if (recursive && node.isRuleset)
         {
             errors_.push_back(
-                "Recursive function cannot use fields: '" + node.name +
-                "' (fields have fixed memory, so a recursive call would overwrite them)");
+                "Recursive ruleset: '" + node.name +
+                "' (rulesets cannot call themselves, directly or through other rulesets)");
+        }
+        else if (recursive)
+        {
+            errors_.push_back(
+                "Recursive function cannot use fields: '" + node.name);
         }
     }
 }
@@ -680,6 +694,11 @@ void SemanticAnalyser::analyseRuleset(const RulesetDecl &ruleset)
     currentReturnType_ = ruleset.returnType;
     inRuleset_ = true;
 
+    // the contract is about the shape of a well-formed ruleset, so it is only checked
+    // when the name, signature and body have no other errors
+    std::size_t errorsBefore = errors_.size();
+    bool validName = !isBuiltin(ruleset.name) && ruleset.name.rfind("__", 0) != 0;
+
     if (!checkFieldElementType(ruleset.returnType, "return type of '" + ruleset.name + "'"))
     {
         currentReturnType_ = Type{TypeKind::Error, nullptr};
@@ -720,8 +739,119 @@ void SemanticAnalyser::analyseRuleset(const RulesetDecl &ruleset)
             "Missing return statement in ruleset: '" + ruleset.name + "'");
     }
 
+    if (validName && errors_.size() == errorsBefore && ruleset.body != nullptr)
+    {
+        checkRulesetContract(ruleset);
+    }
+
     // remove the ruleset parameter scope
     symbols_.exitScope();
+}
+
+// a ruleset is one fused loop over its fields, so its body must be something the loop
+// can run once per chunk with no side effects:
+//   - it returns a value, with a single return as the last statement
+//   - straight-line: let, assignment and expression statements only (no if / while / blocks)
+//   - it only calls rulesets and built-ins (not functions, and not print: no I/O)
+//   - a uniform result comes from a reduction (or from a ruleset that returns a uniform)
+//   - a field result cannot use reductions: they are only known after the loop
+// recursion is checked with the call graph (checkRecursiveFieldUse)
+void SemanticAnalyser::checkRulesetContract(const RulesetDecl &ruleset)
+{
+    const std::string prefix = "Ruleset '" + ruleset.name + "' ";
+    const std::vector<std::unique_ptr<Statement>> &statements = ruleset.body->statements;
+
+    if (ruleset.returnType.kind == TypeKind::Void)
+    {
+        errors_.push_back(prefix + "must return a value");
+        return;
+    }
+
+    for (std::size_t i = 0; i < statements.size(); i++)
+    {
+        const Statement &statement = *statements[i];
+        bool isLast = i + 1 == statements.size();
+
+        if (dynamic_cast<const IfStatement *>(&statement) != nullptr)
+        {
+            errors_.push_back(prefix + "cannot contain if statements (use select instead)");
+            return;
+        }
+        if (dynamic_cast<const WhileStatement *>(&statement) != nullptr)
+        {
+            errors_.push_back(prefix + "cannot contain while loops");
+            return;
+        }
+        if (dynamic_cast<const BlockStatement *>(&statement) != nullptr)
+        {
+            errors_.push_back(prefix + "cannot contain nested blocks");
+            return;
+        }
+        if (dynamic_cast<const ReturnStatement *>(&statement) != nullptr && !isLast)
+        {
+            errors_.push_back(prefix + "must have a single return, as its last statement");
+            return;
+        }
+    }
+
+    bool usesReduction = false;
+    bool callsUniformRuleset = false;
+    bool badCall = false;
+
+    forEachExpression(*ruleset.body, [&](const Expression &expression) {
+        const CallExpr *call = dynamic_cast<const CallExpr *>(&expression);
+        if (call == nullptr || badCall)
+        {
+            return;
+        }
+
+        if (call->name == "print")
+        {
+            errors_.push_back(prefix + "cannot call print");
+            badCall = true;
+            return;
+        }
+
+        if (isReduction(call->name))
+        {
+            usesReduction = true;
+            return;
+        }
+
+        if (isBuiltin(call->name))
+        {
+            return;
+        }
+
+        const Symbol *symbol = symbols_.lookup(call->name);
+        if (symbol != nullptr && symbol->kind == SymbolKind::Function)
+        {
+            errors_.push_back(prefix + "cannot call function '" + call->name);
+            badCall = true;
+            return;
+        }
+
+        if (call->resolvedType.kind != TypeKind::Field)
+        {
+            callsUniformRuleset = true;
+        }
+    });
+
+    if (badCall)
+    {
+        return;
+    }
+
+    if (ruleset.returnType.kind == TypeKind::Field && usesReduction)
+    {
+        errors_.push_back(prefix + "returns a field, so it cannot use reductions "
+                                   "(move the reduction into its own ruleset)");
+    }
+    else if (ruleset.returnType.kind != TypeKind::Field && !usesReduction && !callsUniformRuleset)
+    {
+        errors_.push_back(prefix + "returns a uniform, so it must use a reduction "
+                                   "(sum, min_of, max_of, any or all)");
+    }
 }
 
 // checks all statements inside a block

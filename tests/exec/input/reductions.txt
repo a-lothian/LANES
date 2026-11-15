@@ -56,8 +56,9 @@ ruleset literal_sum() -> integer {
     return sum([1, 2, 3]);
 }
 
-ruleset count(x: field<f32, 7>) -> integer {
-    return length(x);
+// length is a constant, so it can be used after the loop with the reduction
+ruleset average(x: field<f32, 7>) -> f32 {
+    return sum(x) / to_f32(length(x));
 }
 
 function main() -> integer {
@@ -75,7 +76,7 @@ function main() -> integer {
     print(mean([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]));
     print(range([3, 9, -2, 7, 0, 5]));
     print(literal_sum());
-    print(count([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]));
+    print(average([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]));
 
     let a = [1, 2, 3];
     print(length(a));

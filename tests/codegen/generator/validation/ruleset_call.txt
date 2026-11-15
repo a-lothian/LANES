@@ -1,7 +1,54 @@
 (module
   (memory (export "memory") 1)
-  (func $scale (param $s f32) (param $k f32) (result f32)
-    local.get $s
+  (func $total (param $x i32) (param $k f32) (result f32)
+    (local $__x v128)
+    (local $__sum v128)
+    (local $__sum_result f32)
+    (local $__offset i32)
+    (local $__valid v128)
+    v128.const i32x4 0 0 0 0
+    local.set $__sum
+    loop $chunk_loop
+      local.get $x
+      local.get $__offset
+      i32.add
+      v128.load
+      local.set $__x
+      v128.const i32x4 0 4 8 12
+      local.get $__offset
+      i32x4.splat
+      i32x4.add
+      v128.const i32x4 8 8 8 8
+      i32x4.lt_s
+      local.set $__valid
+      local.get $__sum
+      local.get $__x
+      v128.const i32x4 0 0 0 0
+      local.get $__valid
+      v128.bitselect
+      f32x4.add
+      local.set $__sum
+      local.get $__offset
+      i32.const 16
+      i32.add
+      local.tee $__offset
+      i32.const 16
+      i32.lt_s
+      br_if $chunk_loop
+    end
+    local.get $__sum
+    local.get $__sum
+    local.get $__sum
+    i8x16.shuffle 8 9 10 11 12 13 14 15 0 1 2 3 4 5 6 7
+    f32x4.add
+    local.tee $__sum
+    local.get $__sum
+    local.get $__sum
+    i8x16.shuffle 4 5 6 7 0 1 2 3 12 13 14 15 8 9 10 11
+    f32x4.add
+    f32x4.extract_lane 0
+    local.set $__sum_result
+    local.get $__sum_result
     local.get $k
     f32.mul
     return
@@ -33,14 +80,14 @@
     memory.copy
     i32.const 16
     local.set $a
-    f32.const 2
+    local.get $a
     f32.const 3
-    call $scale
+    call $total
     local.set $b
     i32.const 0
     return
   )
-  (export "scale" (func $scale))
+  (export "total" (func $total))
   (export "pass" (func $pass))
   (export "main" (func $main))
 )
