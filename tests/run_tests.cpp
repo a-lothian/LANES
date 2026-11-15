@@ -7,6 +7,8 @@
 #include "semantic/run_control_flow_test.h"
 #include "semantic/run_type_annotation_test.h"
 #include "semantic/run_recursion_test.h"
+#include "semantic/run_builtin_test.h"
+#include "exec/run_exec_test.h"
 
 int main()
 {
@@ -20,6 +22,8 @@ int main()
     passing &= runControlFlowSemanticTests();
     passing &= runTypeAnnotationTests();
     passing &= runRecursionTests();
+    passing &= runBuiltinTests();
+    passing &= runExecTests();
 
     std::cout << "\nOverall Result: " << (passing ? "PASSED" : "FAILED") << "\n";
 

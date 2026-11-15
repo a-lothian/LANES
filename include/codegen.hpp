@@ -37,6 +37,12 @@ private:
     // fixed addresses for fields made at compiletime
     // the module only gets a memory section if something was reserved
     MemoryLayout memory_;
+    // true if the host needs to read memory (printing a field), even if nothing was reserved
+    bool hostReadsMemory_ = false;
+
+    // host functions imported from "env", added on first use
+    std::unordered_set<std::string> importedFunctions_;
+    void requireImport(const std::string &name, const std::vector<WatType> &params);
 
     void generateFunction(const FunctionDecl &function);
 
@@ -50,6 +56,7 @@ private:
     void generateLiteral(const LiteralExpr &literal);
     void generateFieldLiteral(const FieldLiteralExpr &literal);
     void generateCall(const CallExpr &call);
+    void generatePrint(const CallExpr &call);
 
     // fields use copy value semantics
     bool reserveField(const Type &type, std::uint32_t &address, const std::string &context);

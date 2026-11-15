@@ -20,6 +20,12 @@ private:
 
     void registerFunction(const FunctionDecl &function);
     void registerRuleset(const RulesetDecl &ruleset);
+    // false if a function / ruleset name is reserved
+    bool checkDeclarationName(const std::string &name);
+
+    // built-in functions, currently just print
+    static bool isBuiltin(const std::string &name);
+    Type analyseBuiltinCall(const CallExpr &call);
     void analyseFunction(const FunctionDecl &function);
     void analyseBlock(const BlockStatement &block, bool createScope = true);
     void analyseStatement(const Statement &statement);
@@ -29,7 +35,7 @@ private:
     Type inferExpressionType(const Expression &expression);
     Type analyseFieldLiteral(const FieldLiteralExpr &literal);
     Type currentReturnType_{TypeKind::Void, nullptr};
-    
+
     void checkRecursiveFieldUse(const Program &program);
 
     bool sameType(const Type &left, const Type &right) const;

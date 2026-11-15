@@ -1,5 +1,6 @@
 #include "codegen.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 
 bool CodeGenerator::generate(const Program &program)
@@ -33,9 +34,9 @@ bool CodeGenerator::generate(const Program &program)
 
     // every field has its address so the total size is known
     // exported so a JavaScript host can read and write field data
-    if (!memory_.empty())
+    if (!memory_.empty() || hostReadsMemory_)
     {
-        module_.setMemory(memory_.pages());
+        module_.setMemory(std::max<std::uint32_t>(memory_.pages(), 1));
     }
 
     if (errors_.empty())
@@ -52,6 +53,18 @@ void CodeGenerator::reset() {
     errors_.clear();
     function_ = nullptr;
     memory_ = MemoryLayout();
+    importedFunctions_.clear();
+    hostReadsMemory_ = false;
+}
+
+// host functions are imported as `(import "env" "<name>" (func $__<name> ...))`
+// the "__" prefix is reserved, so they cannot clash with user functions
+void CodeGenerator::requireImport(const std::string &name, const std::vector<WatType> &params)
+{
+    if (importedFunctions_.insert(name).second)
+    {
+        module_.importFunction("env", name, "__" + name, params, {});
+    }
 }
 
 const std::string &CodeGenerator::getWat() const
@@ -698,8 +711,74 @@ void CodeGenerator::copyAssignedFieldParameters(const FunctionDecl &function)
     }
 }
 
+// print(value) calls the host function for the value's type:
+//   integer -> print_i32(value)      float -> print_f32(value)      bool -> print_bool(value)
+//   field   -> print_field_<element>(address, length), the host reads the exported memory
+void CodeGenerator::generatePrint(const CallExpr &call)
+{
+    if (call.arguments.size() != 1)
+    {
+        addError("print expects one argument; run semantic analysis first");
+        return;
+    }
+
+    const Expression &argument = *call.arguments[0];
+    const Type &type = argument.resolvedType;
+
+    auto elementName = [](TypeKind kind) -> std::string {
+        switch (kind)
+        {
+        case TypeKind::Int:
+            return "i32";
+        case TypeKind::Float:
+            return "f32";
+        case TypeKind::Bool:
+            return "bool";
+        default:
+            return "";
+        }
+    };
+
+    if (type.kind == TypeKind::Field)
+    {
+        std::string element = type.elementType == nullptr ? "" : elementName(type.elementType->kind);
+        if (element.empty())
+        {
+            addError("print cannot print this field type");
+            return;
+        }
+
+        // the field is read straight away, so no temporary copy is needed
+        std::string hostFunction = "print_field_" + element;
+        requireImport(hostFunction, {WatType::I32, WatType::I32});
+        hostReadsMemory_ = true;
+        generateFieldSource(argument);
+        function_->i32Constant(static_cast<int>(type.length));
+        function_->call("__" + hostFunction);
+        return;
+    }
+
+    std::string element = elementName(type.kind);
+    if (element.empty())
+    {
+        addError("print cannot print this type");
+        return;
+    }
+
+    std::string hostFunction = "print_" + element;
+    requireImport(hostFunction, {type.kind == TypeKind::Float ? WatType::F32 : WatType::I32});
+    generateExpression(argument);
+    function_->call("__" + hostFunction);
+}
+
 void CodeGenerator::generateCall(const CallExpr &call)
 {
+    if (call.name == "print")
+    {
+        generatePrint(call);
+        return;
+    }
+
     // arguments are pushed left to right, then the call consumes them
     for (const std::unique_ptr<Expression> &argument : call.arguments)
     {

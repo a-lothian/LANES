@@ -1,0 +1,14 @@
+// floats print in their shortest exact 32-bit form, so 0.1 stays 0.1
+function main() -> integer {
+    print(42);
+    print(-7);
+    print(3.5);
+    print(0.1);
+    print(1.0 / 3.0);
+    print(2.0 * 4.0);
+    print(true);
+    print(false);
+    print(3 < 4);
+    print(2.5 != 2.5);
+    return 0;
+}

@@ -262,9 +262,73 @@ void SemanticAnalyser::checkRecursiveFieldUse(const Program &program)
     }
 }
 
+// built-in names, and names starting with "__" (used for compiler-generated
+// WAT names such as $__print_i32), cannot be declared
+bool SemanticAnalyser::checkDeclarationName(const std::string &name)
+{
+    if (isBuiltin(name))
+    {
+        errors_.push_back(
+            "Cannot redeclare built-in: '" + name + "'");
+        return false;
+    }
+
+    if (name.rfind("__", 0) == 0)
+    {
+        errors_.push_back(
+            "Reserved name: '" + name + "' (names starting with '__' are used by the compiler)");
+        return false;
+    }
+
+    return true;
+}
+
+bool SemanticAnalyser::isBuiltin(const std::string &name)
+{
+    return name == "print";
+}
+
+Type SemanticAnalyser::analyseBuiltinCall(const CallExpr &call)
+{
+    if (call.name == "print")
+    {
+        if (call.arguments.size() != 1)
+        {
+            errors_.push_back(
+                "Incorrect number of arguments for function: 'print'");
+            return Type{TypeKind::Error, nullptr};
+        }
+
+        Type argumentType = analyseExpression(*call.arguments[0]);
+
+        // an error was already reported inside the argument
+        if (argumentType.kind == TypeKind::Error)
+        {
+            return Type{TypeKind::Error, nullptr};
+        }
+
+        if (argumentType.kind == TypeKind::Void)
+        {
+            errors_.push_back(
+                "print requires an integer, float, bool or field argument");
+            return Type{TypeKind::Error, nullptr};
+        }
+
+        return Type{TypeKind::Void, nullptr};
+    }
+
+    errors_.push_back("Unsupported built-in: '" + call.name + "'");
+    return Type{TypeKind::Error, nullptr};
+}
+
 // registers a function and its type information in the symbol table
 void SemanticAnalyser::registerFunction(const FunctionDecl &function)
 {
+    if (!checkDeclarationName(function.name))
+    {
+        return;
+    }
+
     // create a symbol representing this function
     // stores its kind, return type and an empty parameter list
     Symbol symbol{
@@ -292,6 +356,11 @@ void SemanticAnalyser::registerFunction(const FunctionDecl &function)
 // registers a ruleset and its type information in the symbol table
 void SemanticAnalyser::registerRuleset(const RulesetDecl &ruleset)
 {
+    if (!checkDeclarationName(ruleset.name))
+    {
+        return;
+    }
+
     // create a symbol representing this ruleset
     Symbol symbol{
         SymbolKind::Ruleset,
@@ -859,6 +928,12 @@ Type SemanticAnalyser::inferExpressionType(const Expression &expression)
 
     if (call != nullptr)
     {
+        // built-ins are not in the symbol table and cannot be redeclared
+        if (isBuiltin(call->name))
+        {
+            return analyseBuiltinCall(*call);
+        }
+
         // find the function in the symbol table
         const Symbol *symbol = symbols_.lookup(call->name);
 
