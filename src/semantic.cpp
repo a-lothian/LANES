@@ -299,7 +299,7 @@ void SemanticAnalyser::checkRecursiveFieldUse(const Program &program)
         else if (recursive)
         {
             errors_.push_back(
-                "Recursive function cannot use fields: '" + node.name);
+                "Recursive function cannot use fields: '" + node.name + "'");
         }
     }
 }
@@ -840,7 +840,7 @@ void SemanticAnalyser::checkRulesetContract(const RulesetDecl &ruleset)
         const Symbol *symbol = symbols_.lookup(call->name);
         if (symbol != nullptr && symbol->kind == SymbolKind::Function)
         {
-            errors_.push_back(prefix + "cannot call function '" + call->name);
+            errors_.push_back(prefix + "cannot call function '" + call->name + "'");
             badCall = true;
             return;
         }

@@ -100,16 +100,16 @@ bool runRulesetContractTests()
                        "Ruleset 'r' must have a single return, as its last statement");
     passing &= rejects("void ruleset",
                        "ruleset r(x: field<f32, 4>) -> void { let y = x; }",
-                       "Ruleset 'r' must return a value (rulesets have no other effects)");
+                       "Ruleset 'r' must return a value");
 
     // calls
     passing &= rejects("print in a ruleset",
                        ruleset("field<f32, 4>", "print(s); return x;"),
-                       "Ruleset 'r' cannot call print (rulesets have no I/O)");
+                       "Ruleset 'r' cannot call print");
     passing &= rejects("function call in a ruleset",
                        "function half(n: f32) -> f32 { return n / 2.0; } " +
                            ruleset("field<f32, 4>", "return x * half(s);"),
-                       "Ruleset 'r' cannot call function 'half' (rulesets may only call rulesets and built-ins)");
+                       "Ruleset 'r' cannot call function 'half'");
 
     // reductions and result kinds
     passing &= rejects("field result with a reduction",

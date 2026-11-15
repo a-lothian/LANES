@@ -44,8 +44,7 @@ static bool rejects(const std::string &name, const std::string &source,
     for (const std::string &function : functions)
     {
         expected.push_back(
-            "Recursive function cannot use fields: '" + function +
-            "' (fields have fixed memory, so a recursive call would overwrite them)");
+            "Recursive function cannot use fields: '" + function + "'");
     }
 
     bool passed = errors == expected;
