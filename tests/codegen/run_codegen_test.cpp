@@ -16,7 +16,7 @@ static std::vector<std::string> tests = {
     "float_arithmetic.txt", "shadowing.txt", "calls.txt",
     "bool_comparison.txt", "nested_loops.txt", "ruleset_unsupported.txt", "ruleset_call.txt", "ruleset_simd.txt",
     "ruleset_mixed_lengths.txt", "ruleset_loop_value_argument.txt",
-    "reduction.txt", "reduction_used_by_field.txt", "reduction_then_field.txt", "reduction_tail_uniform.txt", "math_builtins.txt", "logical.txt",
+    "reduction.txt", "reduction_used_by_field.txt", "reduction_then_field.txt", "reduction_tail_uniform.txt", "math_builtins.txt", "logical.txt", "for_loop.txt",
     "field_literal.txt", "field_values.txt"};
 
 static FileHandler reader;

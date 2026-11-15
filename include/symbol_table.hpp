@@ -22,6 +22,7 @@ struct Symbol
     SymbolKind kind;
     Type type;
     std::vector<Type> parameterTypes;
+    bool readOnly = false;  // a for loop variable which cannot be assigned
 };
 
 // manages symbols and their scopes

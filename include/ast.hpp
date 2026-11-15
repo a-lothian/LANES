@@ -164,6 +164,16 @@ struct WhileStatement : Statement
     std::unique_ptr<BlockStatement> body;
 };
 
+// for (i in start, end) { body }: i counts from start up to end - 1
+// both bounds are integers. i cannot be assigned
+struct ForStatement : Statement
+{
+    std::string variable;
+    std::unique_ptr<Expression> start;
+    std::unique_ptr<Expression> end;
+    std::unique_ptr<BlockStatement> body;
+};
+
 // base structure for declarations
 struct Declaration
 {

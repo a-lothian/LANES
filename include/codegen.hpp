@@ -105,6 +105,7 @@ private:
     void generateLet(const LetStatement &statement);
     void generateIf(const IfStatement &statement);
     void generateWhile(const WhileStatement &statement);
+    void generateFor(const ForStatement &statement);
 
     void generateExpression(const Expression &expression);
     void generateLiteral(const LiteralExpr &literal);

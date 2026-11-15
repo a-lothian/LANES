@@ -113,6 +113,8 @@ const std::unordered_map<std::string_view, TokenType> keywords = {
     {"if", TokenType::KeywordIf},
     {"else", TokenType::KeywordElse},
     {"while", TokenType::KeywordWhile},
+    {"for", TokenType::KeywordFor},
+    {"in", TokenType::KeywordIn},
     {"true", TokenType::KeywordTrue},
     {"false", TokenType::KeywordFalse},
     {"and", TokenType::KeywordAnd},

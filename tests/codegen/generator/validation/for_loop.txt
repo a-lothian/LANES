@@ -1,0 +1,33 @@
+(module
+  (func $sum_below (param $n i32) (result i32)
+    (local $total i32)
+    (local $__end i32)
+    (local $i i32)
+    i32.const 0
+    local.set $total
+    i32.const 0
+    local.get $n
+    local.set $__end
+    local.set $i
+    block $for_exit_0
+      loop $for_loop_0
+        local.get $i
+        local.get $__end
+        i32.ge_s
+        br_if $for_exit_0
+        local.get $total
+        local.get $i
+        i32.add
+        local.set $total
+        local.get $i
+        i32.const 1
+        i32.add
+        local.set $i
+        br $for_loop_0
+      end
+    end
+    local.get $total
+    return
+  )
+  (export "sum_below" (func $sum_below))
+)

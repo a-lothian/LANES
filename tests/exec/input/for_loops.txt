@@ -1,0 +1,78 @@
+// for (i in start, end) runs i = start, start + 1, ..., end - 1
+
+function sum_below(n: integer) -> integer {
+    let total = 0;
+    for (i in 0, n) {
+        total = total + i;
+    }
+    return total;
+}
+
+function factorial(n: integer) -> integer {
+    let result = 1;
+    for (i in 1, n + 1) {
+        result = result * i;
+    }
+    return result;
+}
+
+// returning from inside the loop
+function first_square_above(limit: integer, n: integer) -> integer {
+    for (i in 0, n) {
+        if i * i > limit {
+            return i;
+        }
+    }
+    return -1;
+}
+
+ruleset double(x: field<f32, 4>) -> field<f32, 4> {
+    return x * 2.0;
+}
+
+function main() -> integer {
+    print(sum_below(5));
+    print(factorial(5));
+
+    // an empty range never runs the body
+    let runs = 0;
+    for (i in 5, 5) { runs = runs + 1; }
+    for (i in 5, 2) { runs = runs + 1; }
+    print(runs);
+
+    for (i in -2, 2) {
+        print(i);
+    }
+
+    // the end is evaluated once, so growing n does not extend the loop
+    let n = 3;
+    for (i in 0, n) {
+        n = n + 1;
+    }
+    print(n);
+
+    // nested: j runs from 0 to i - 1 for each i, so 0 + 1 + 2 + 3 iterations
+    let pairs = 0;
+    for (i in 0, 4) {
+        for (j in 0, i) {
+            pairs = pairs + 1;
+        }
+    }
+    print(pairs);
+
+    // the loop has its own i, the outer one is unchanged
+    let i = 100;
+    for (i in 0, 3) { }
+    print(i);
+
+    print(first_square_above(20, 10));
+    print(first_square_above(20, 3));
+
+    // a field assigned in a loop through a ruleset
+    let a = [1.0, 1.0, 1.0, 1.0];
+    for (step in 0, 3) {
+        a = double(a);
+    }
+    print(a);
+    return 0;
+}

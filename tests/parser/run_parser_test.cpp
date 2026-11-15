@@ -691,6 +691,58 @@ bool run_parser_tests()
             "parser_nested_function_calls");
     }
 
+    // for loop: variable, both bounds and the body are parsed
+    {
+        Program program = parseSource(
+            "function main() -> integer { "
+            "for (i in 1, n + 1) { print(i); } "
+            "return 0; "
+            "}");
+
+        auto *function = dynamic_cast<FunctionDecl *>(
+            program.declarations[0].get());
+        auto *loop = dynamic_cast<ForStatement *>(
+            function->body->statements[0].get());
+        auto *start = loop == nullptr ? nullptr
+                                      : dynamic_cast<LiteralExpr *>(loop->start.get());
+        auto *end = loop == nullptr ? nullptr
+                                    : dynamic_cast<BinaryExpr *>(loop->end.get());
+
+        bool valid =
+            loop != nullptr &&
+            loop->variable == "i" &&
+            start != nullptr && start->value == "1" &&
+            end != nullptr && end->op == BinaryOperator::Add &&
+            loop->body != nullptr && loop->body->statements.size() == 1;
+
+        passing &= expect(valid, "parser_for_loop");
+    }
+
+    passing &= expect(
+        rejectsSource("function main() -> integer { for i in 0, 3 {} return 0; }"),
+        "parser_rejects_for_without_brackets");
+
+    passing &= expect(
+        rejectsSource("function main() -> integer { for (i 0, 3) {} return 0; }"),
+        "parser_rejects_for_without_in");
+
+    passing &= expect(
+        rejectsSource("function main() -> integer { for (i in 0 3) {} return 0; }"),
+        "parser_rejects_for_without_comma");
+
+    passing &= expect(
+        rejectsSource("function main() -> integer { for (i in 0, 3 {} return 0; }"),
+        "parser_rejects_for_without_closing_bracket");
+
+    passing &= expect(
+        rejectsSource("function main() -> integer { for (1 in 0, 3) {} return 0; }"),
+        "parser_rejects_for_without_variable");
+
+    // the old range syntax is not a token any more
+    passing &= expect(
+        rejectsSource("function main() -> integer { for (i in 0..3) {} return 0; }"),
+        "parser_rejects_dot_dot_range");
+
     // TEST CASE 21-27 (malformed syntax rejection)
     passing &= expect(
         rejectsSource("function main() -> mystery {}"),

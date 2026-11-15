@@ -1,0 +1,9 @@
+// for (i in 0, n): the end is saved in a hidden local before the loop, and i
+// is checked against it at the top of every iteration
+function sum_below(n: integer) -> integer {
+    let total = 0;
+    for (i in 0, n) {
+        total = total + i;
+    }
+    return total;
+}

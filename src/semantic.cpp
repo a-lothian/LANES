@@ -166,6 +166,15 @@ static void forEachExpression(const Statement &statement,
             forEachExpression(*whileStatement->body, visit);
         }
     }
+    else if (const ForStatement *forStatement = dynamic_cast<const ForStatement *>(&statement))
+    {
+        visitExpression(forStatement->start);
+        visitExpression(forStatement->end);
+        if (forStatement->body != nullptr)
+        {
+            forEachExpression(*forStatement->body, visit);
+        }
+    }
 }
 
 // what the recursion check needs to know about one function or ruleset
@@ -751,7 +760,7 @@ void SemanticAnalyser::analyseRuleset(const RulesetDecl &ruleset)
 // a ruleset is one fused loop over its fields, so its body must be something the loop
 // can run once per chunk with no side effects:
 //   - it returns a value, with a single return as the last statement
-//   - straight-line: let, assignment and expression statements only (no if / while / blocks)
+//   - straight-line: let, assignment and expression statements only (no if / while / for / blocks)
 //   - it only calls rulesets and built-ins (not functions, and not print: no I/O)
 //   - a uniform result comes from a reduction (or from a ruleset that returns a uniform)
 //   - a field result cannot use reductions: they are only known after the loop
@@ -780,6 +789,11 @@ void SemanticAnalyser::checkRulesetContract(const RulesetDecl &ruleset)
         if (dynamic_cast<const WhileStatement *>(&statement) != nullptr)
         {
             errors_.push_back(prefix + "cannot contain while loops");
+            return;
+        }
+        if (dynamic_cast<const ForStatement *>(&statement) != nullptr)
+        {
+            errors_.push_back(prefix + "cannot contain for loops");
             return;
         }
         if (dynamic_cast<const BlockStatement *>(&statement) != nullptr)
@@ -1052,6 +1066,15 @@ void SemanticAnalyser::analyseStatement(const Statement &statement)
             return;
         }
 
+        // the loop counts i itself, so the body cannot change it
+        if (symbol->readOnly)
+        {
+            errors_.push_back(
+                "Cannot assign to loop variable: '" + assignment->name + "'");
+
+            return;
+        }
+
         // the value must match the variable's type
         if (valueType.kind != TypeKind::Error &&
             symbol->type.kind != TypeKind::Error &&
@@ -1094,6 +1117,36 @@ void SemanticAnalyser::analyseStatement(const Statement &statement)
         analyseCondition(*whileStatement->condition, "while");
         analyseBlock(*whileStatement->body);
 
+        return;
+    }
+
+    // 8. CHECK FOR LOOPS
+    // for (i in start, end): the bounds are integers, and i is a read-only integer
+    // in its own scope around the body (so the body may shadow it with a let)
+    const ForStatement *forStatement =
+        dynamic_cast<const ForStatement *>(&statement);
+
+    if (forStatement != nullptr)
+    {
+        // the bounds are analysed before i exists, so "for (i in 0, i)" uses an outer i
+        for (const Expression *bound : {forStatement->start.get(), forStatement->end.get()})
+        {
+            Type boundType = analyseExpression(*bound);
+            if (boundType.kind != TypeKind::Error && boundType.kind != TypeKind::Int)
+            {
+                errors_.push_back("Range bounds of 'for' must be integers");
+            }
+        }
+
+        symbols_.enterScope();
+
+        Symbol variable{SymbolKind::Variable, Type{TypeKind::Int, nullptr}, {}};
+        variable.readOnly = true;
+        symbols_.declare(forStatement->variable, variable);
+
+        analyseBlock(*forStatement->body);
+
+        symbols_.exitScope();
         return;
     }
 }

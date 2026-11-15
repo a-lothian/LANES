@@ -386,6 +386,10 @@ case TokenType::KeywordWhile:
     advance();
     return parseWhileStatement();
 
+case TokenType::KeywordFor:
+    advance();
+    return parseForStatement();
+
 case TokenType::LeftBrace:
     return parseBlock();   // parseBlock consumes the `{` so no advance here
 
@@ -432,6 +436,23 @@ std::unique_ptr<Statement> Parser::parseWhileStatement()
     auto statement = std::make_unique<WhileStatement>();
 
     statement->condition = parseExpression();
+    statement->body = parseBlock();
+
+    return statement;
+}
+
+// for (<name> in <start>, <end>) { body }
+std::unique_ptr<Statement> Parser::parseForStatement()
+{
+    auto statement = std::make_unique<ForStatement>();
+
+    consume(TokenType::LeftBracket, "Expected '(' after 'for'.");
+    statement->variable = lexeme(consume(TokenType::Name, "Expected loop variable name in 'for'."));
+    consume(TokenType::KeywordIn, "Expected 'in' after loop variable.");
+    statement->start = parseExpression();
+    consume(TokenType::Comma, "Expected ',' between the start and end of the range.");
+    statement->end = parseExpression();
+    consume(TokenType::RightBracket, "Expected ')' after the range.");
     statement->body = parseBlock();
 
     return statement;

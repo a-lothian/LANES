@@ -424,6 +424,12 @@ static bool usesFieldOperations(const Statement &statement)
                (whileStatement->body != nullptr && usesFieldOperations(*whileStatement->body));
     }
 
+    if (const ForStatement *forStatement = dynamic_cast<const ForStatement *>(&statement))
+    {
+        return usesFieldOperations(*forStatement->start) || usesFieldOperations(*forStatement->end) ||
+               (forStatement->body != nullptr && usesFieldOperations(*forStatement->body));
+    }
+
     return false;
 }
 
@@ -1342,6 +1348,12 @@ void CodeGenerator::generateStatement(const Statement &statement)
         return;
     }
 
+    if (const ForStatement *forStatement = dynamic_cast<const ForStatement *>(&statement))
+    {
+        generateFor(*forStatement);
+        return;
+    }
+
     addError("Unsupported statement in code generation");
 }
 
@@ -1410,6 +1422,53 @@ void CodeGenerator::generateWhile(const WhileStatement &statement)
     function_->branch(loopLabel);
     function_->end();
     function_->end();
+}
+
+// for (i in start, end) { body } becomes:
+//   <start>  <end>  local.set $__end  local.set $i    (both bounds evaluated once, in order)
+//   block $exit
+//     loop $again
+//       local.get $i  local.get $__end  i32.ge_s  br_if $exit   (leave once i reaches end)
+//       <body>
+//       local.get $i  i32.const 1  i32.add  local.set $i
+//       br $again
+//     end
+//   end
+void CodeGenerator::generateFor(const ForStatement &statement)
+{
+    int id = labelCounter_++;
+    std::string exitLabel = "for_exit_" + std::to_string(id);
+    std::string loopLabel = "for_loop_" + std::to_string(id);
+
+    generateExpression(*statement.start);
+    generateExpression(*statement.end);
+
+    enterScope();
+    std::string end = newLocal("end", WatType::I32);
+    std::string counter = declareLocal(statement.variable, WatType::I32);
+    function_->localSet(end);
+    function_->localSet(counter);
+
+    function_->beginBlock(exitLabel);
+    function_->beginLoop(loopLabel);
+
+    function_->localGet(counter);
+    function_->localGet(end);
+    function_->i32SignedGreaterThanOrEqual();
+    function_->branchIf(exitLabel);
+
+    generateBlock(*statement.body);
+
+    function_->localGet(counter);
+    function_->i32Constant(1);
+    function_->i32Addition();
+    function_->localSet(counter);
+
+    function_->branch(loopLabel);
+    function_->end();
+    function_->end();
+
+    exitScope();
 }
 
 // expressions
@@ -1686,6 +1745,11 @@ static bool assignsTo(const Statement &statement, const std::string &name)
     if (const WhileStatement *whileStatement = dynamic_cast<const WhileStatement *>(&statement))
     {
         return whileStatement->body != nullptr && assignsTo(*whileStatement->body, name);
+    }
+
+    if (const ForStatement *forStatement = dynamic_cast<const ForStatement *>(&statement))
+    {
+        return forStatement->body != nullptr && assignsTo(*forStatement->body, name);
     }
 
     return false;

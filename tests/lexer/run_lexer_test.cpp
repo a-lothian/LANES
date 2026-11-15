@@ -18,7 +18,7 @@ static std::vector<std::string> tests = {
     "whitespace_splits_operators.txt", "comment_basic.txt", "comment_at_eof.txt", 
     "comment_only.txt", "comment_lines.txt", "comment_slash.txt", 
     "comment_contents.txt", "comment_triple_slash.txt", "comment_adjacent.txt", 
-    "comment_crlf.txt", "program.txt", "program_long.txt", "square_brackets.txt"
+    "comment_crlf.txt", "program.txt", "program_long.txt", "square_brackets.txt", "for_syntax.txt"
 };
 
 static FileHandler reader;
