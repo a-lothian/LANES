@@ -1,0 +1,9 @@
+// calls run before the loop on whole fields, but y only exists one chunk at a time
+ruleset double(x: field<f32, 4>) -> field<f32, 4> {
+    return x * 2.0;
+}
+
+ruleset quad(x: field<f32, 4>) -> field<f32, 4> {
+    let y = x * 2.0;
+    return double(y);
+}

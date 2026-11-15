@@ -1,0 +1,16 @@
+// a ruleset compiles to an exported function, the same as a normal function:
+// uniforms are scalars, fields are passed and returned as addresses
+ruleset total(x: field<f32, 2>, k: f32) -> f32 {
+    return sum(x) * k;
+}
+
+ruleset pass(x: field<f32, 2>) -> field<f32, 2> {
+    let y = x;
+    return y;
+}
+
+function main() -> integer {
+    let a = pass([1.0, 2.0]);
+    let b = total(a, 3.0);
+    return 0;
+}

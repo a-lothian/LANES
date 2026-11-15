@@ -1,0 +1,125 @@
+// math built-ins on uniforms (anywhere) and on fields (in rulesets, vectorised)
+
+ruleset magnitudes(x: field<i32, 5>) -> field<i32, 5> {
+    return abs(x);
+}
+
+ruleset float_magnitudes(x: field<f32, 4>) -> field<f32, 4> {
+    return abs(x);
+}
+
+ruleset lower(a: field<i32, 4>, b: field<i32, 4>) -> field<i32, 4> {
+    return min(a, b);
+}
+
+ruleset upper(a: field<i32, 4>, b: field<i32, 4>) -> field<i32, 4> {
+    return max(a, b);
+}
+
+ruleset clip(x: field<f32, 6>) -> field<f32, 6> {
+    return clamp(x, 0.0, 1.0);
+}
+
+// a field lower bound with a uniform upper bound
+ruleset bounded(x: field<i32, 4>, lo: field<i32, 4>) -> field<i32, 4> {
+    return clamp(x, lo, 5);
+}
+
+ruleset roots(x: field<f32, 5>) -> field<f32, 5> {
+    return sqrt(x);
+}
+
+ruleset floors(x: field<f32, 4>) -> field<f32, 4> {
+    return floor(x);
+}
+
+ruleset ceilings(x: field<f32, 4>) -> field<f32, 4> {
+    return ceil(x);
+}
+
+ruleset rounded(x: field<f32, 4>) -> field<f32, 4> {
+    return round(x);
+}
+
+ruleset halves(x: field<i32, 4>) -> field<f32, 4> {
+    return to_f32(x) / 2.0;
+}
+
+ruleset truncated(x: field<f32, 4>) -> field<i32, 4> {
+    return to_i32(x);
+}
+
+ruleset relu(x: field<f32, 6>) -> field<f32, 6> {
+    return select(x > 0.0, x, 0.0);
+}
+
+// a uniform mask picks a whole field
+ruleset pick(flag: bool, a: field<i32, 4>, b: field<i32, 4>) -> field<i32, 4> {
+    return select(flag, a, b);
+}
+
+ruleset ramp(x: field<f32, 6>) -> field<f32, 6> {
+    return x + to_f32(index(x));
+}
+
+// three chunks, so the index vector is advanced twice
+ruleset evens(x: field<i32, 9>) -> field<i32, 9> {
+    return index(x) * 2;
+}
+
+ruleset l1_norm(x: field<f32, 5>) -> f32 {
+    return sum(abs(x));
+}
+
+ruleset index_total(x: field<i32, 6>) -> integer {
+    return sum(index(x) * x);
+}
+
+function main() -> integer {
+    // uniforms
+    print(abs(-5));
+    print(abs(3));
+    print(abs(-2.5));
+    print(min(3, -7));
+    print(max(3, -7));
+    print(min(1.5, 2.5));
+    print(max(1.5, 2.5));
+    print(clamp(15, 0, 10));
+    print(clamp(-3, 0, 10));
+    print(clamp(0.5, 0.0, 1.0));
+    print(sqrt(16.0));
+    print(floor(2.7));
+    print(floor(-2.5));
+    print(ceil(2.1));
+    print(round(2.5));
+    print(round(3.5));
+    print(to_f32(7) / 2.0);
+    print(to_i32(2.9));
+    print(to_i32(-2.9));
+    print(select(true, 1, 2));
+    print(select(3 > 4, 1.5, 2.5));
+    print(min(min(5, 3), 4));
+    print(abs(min(-4, 2)));
+
+    // fields
+    print(magnitudes([-1, 2, -3, 4, -5]));
+    print(float_magnitudes([-1.5, 2.0, -0.5, 0.0]));
+    print(lower([1, 5, -3, 8], [2, 4, -4, 8]));
+    print(upper([1, 5, -3, 8], [2, 4, -4, 8]));
+    print(clip([-0.5, 0.25, 1.5, 1.0, 0.0, 2.0]));
+    print(bounded([1, 9, 4, -2], [2, 2, 2, 0]));
+    print(roots([1.0, 4.0, 9.0, 16.0, 25.0]));
+    print(floors([2.5, -2.5, 1.2, -1.7]));
+    print(ceilings([2.5, -2.5, 1.2, -1.7]));
+    print(rounded([2.5, -2.5, 1.2, -1.7]));
+    print(halves([1, 2, 3, -5]));
+    print(truncated([2.9, -2.9, 0.5, 100.0]));
+    print(relu([-1.0, 2.0, -3.0, 4.0, 0.0, 5.5]));
+    print(pick(true, [1, 2, 3, 4], [5, 6, 7, 8]));
+    print(pick(false, [1, 2, 3, 4], [5, 6, 7, 8]));
+    print(ramp([10.0, 10.0, 10.0, 10.0, 10.0, 10.0]));
+    print(evens([0, 0, 0, 0, 0, 0, 0, 0, 0]));
+    print(l1_norm([-1.0, 2.0, -3.0, 4.0, -5.0]));
+    print(index_total([1, 1, 1, 1, 1, 1]));
+    return 0;
+}

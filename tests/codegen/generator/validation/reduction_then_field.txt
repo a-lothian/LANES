@@ -1,0 +1,1 @@
+semantic: Ruleset 'normalise' returns a field, so it cannot use reductions (move the reduction into its own ruleset)

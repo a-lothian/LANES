@@ -1,0 +1,98 @@
+(module
+  (func $total (param $x i32) (result f32)
+    (local $__x v128)
+    (local $__splat v128)
+    (local $__sum v128)
+    (local $__sum_result f32)
+    (local $__offset i32)
+    (local $__valid v128)
+    f32.const 2
+    f32x4.splat
+    local.set $__splat
+    v128.const i32x4 0 0 0 0
+    local.set $__sum
+    loop $chunk_loop
+      local.get $x
+      local.get $__offset
+      i32.add
+      v128.load
+      local.set $__x
+      v128.const i32x4 0 4 8 12
+      local.get $__offset
+      i32x4.splat
+      i32x4.add
+      v128.const i32x4 24 24 24 24
+      i32x4.lt_s
+      local.set $__valid
+      local.get $__sum
+      local.get $__x
+      local.get $__splat
+      f32x4.mul
+      v128.const i32x4 0 0 0 0
+      local.get $__valid
+      v128.bitselect
+      f32x4.add
+      local.set $__sum
+      local.get $__offset
+      i32.const 16
+      i32.add
+      local.tee $__offset
+      i32.const 32
+      i32.lt_s
+      br_if $chunk_loop
+    end
+    local.get $__sum
+    local.get $__sum
+    local.get $__sum
+    i8x16.shuffle 8 9 10 11 12 13 14 15 0 1 2 3 4 5 6 7
+    f32x4.add
+    local.tee $__sum
+    local.get $__sum
+    local.get $__sum
+    i8x16.shuffle 4 5 6 7 0 1 2 3 12 13 14 15 8 9 10 11
+    f32x4.add
+    f32x4.extract_lane 0
+    local.set $__sum_result
+    local.get $__sum_result
+    return
+  )
+  (func $over (param $x i32) (param $limit i32) (result i32)
+    (local $__x v128)
+    (local $__splat v128)
+    (local $__any v128)
+    (local $__any_result i32)
+    (local $__offset i32)
+    local.get $limit
+    i32x4.splat
+    local.set $__splat
+    v128.const i32x4 0 0 0 0
+    local.set $__any
+    loop $chunk_loop
+      local.get $x
+      local.get $__offset
+      i32.add
+      v128.load
+      local.set $__x
+      local.get $__any
+      local.get $__x
+      local.get $__splat
+      i32x4.gt_s
+      v128.or
+      local.set $__any
+      local.get $__offset
+      i32.const 16
+      i32.add
+      local.tee $__offset
+      i32.const 16
+      i32.lt_s
+      br_if $chunk_loop
+    end
+    local.get $__any
+    v128.any_true
+    local.set $__any_result
+    local.get $__any_result
+    return
+  )
+  (export "total" (func $total))
+  (export "over" (func $over))
+)

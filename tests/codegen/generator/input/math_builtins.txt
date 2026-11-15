@@ -1,0 +1,14 @@
+// integer min has no WASM instruction, so it is a select between the two values
+function smaller(a: integer, b: integer) -> integer {
+    return min(a, b);
+}
+
+// field built-ins run in the loop: select is a v128.bitselect on the x > 0.0 mask
+ruleset relu(x: field<f32, 4>) -> field<f32, 4> {
+    return select(x > 0.0, x, 0.0);
+}
+
+// index keeps a running [0 1 2 3] vector, advanced by 4 each chunk
+ruleset ramp(x: field<i32, 8>) -> field<i32, 8> {
+    return x + index(x);
+}

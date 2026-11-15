@@ -1,4 +1,6 @@
 #include "run_type_annotation_test.h"
+#include "lexer.hpp"
+#include "parser.hpp"
 #include "semantic.hpp"
 
 #include <iostream>
@@ -170,9 +172,91 @@ static bool testErrorIsRecorded()
     return ok;
 }
 
+// parses and analyses a whole program, returns true if it has no semantic errors
+static bool analyseSource(const std::string &source)
+{
+    Lexer lexer(source);
+    lexer.tokenize();
+    Parser parser(lexer.get_tokens(), source);
+    Program program = parser.parse();
+    SemanticAnalyser analyser;
+    return analyser.analyse(program);
+}
+
+// a field's length is part of its type: field<f32, 4> and field<f32, 5> do not match
+static bool testFieldLengthIsPartOfType()
+{
+    auto analyse = analyseSource;
+
+    std::string callee = "function g(x: field<f32, 4>) -> integer { return 0; } ";
+
+    bool sameLength = analyse(callee + "function f(y: field<f32, 4>) -> integer { return g(y); }");
+    bool otherLength = analyse(callee + "function f(y: field<f32, 5>) -> integer { return g(y); }");
+    bool otherElement = analyse(callee + "function f(y: field<i32, 4>) -> integer { return g(y); }");
+
+    return sameLength && !otherLength && !otherElement;
+}
+
+// [a, b, c] has type field<element type, 3>
+static bool testFieldLiteralType()
+{
+    std::string source =
+        "function f(n: integer) -> integer { "
+        "let a = [n, n + 1, 3]; "
+        "let b = [1.5]; "
+        "let c = [true, n > 2]; "
+        "return 0; "
+        "}";
+
+    Lexer lexer(source);
+    lexer.tokenize();
+    Parser parser(lexer.get_tokens(), source);
+    Program program = parser.parse();
+    SemanticAnalyser analyser;
+    bool ok = analyser.analyse(program);
+
+    auto *function = dynamic_cast<FunctionDecl *>(program.declarations[0].get());
+    auto letType = [&](std::size_t i) -> const Type & {
+        return dynamic_cast<LetStatement *>(function->body->statements[i].get())->resolvedType;
+    };
+
+    auto isField = [](const Type &type, TypeKind element, std::uint32_t length) {
+        return type.kind == TypeKind::Field &&
+               type.elementType != nullptr &&
+               type.elementType->kind == element &&
+               type.length == length;
+    };
+
+    ok &= isField(letType(0), TypeKind::Int, 3);
+    ok &= isField(letType(1), TypeKind::Float, 1);
+    ok &= isField(letType(2), TypeKind::Bool, 2);
+    return ok;
+}
+
+// declared types must match the literal, and elements must be one scalar type
+static bool testFieldLiteralChecks()
+{
+    auto body = [](const std::string &statements) {
+        return analyseSource("function f() -> integer { " + statements + " return 0; }");
+    };
+
+    bool matchingDeclaration = body("let a: field<f32, 3> = [1.0, 2.0, 3.0];");
+    bool wrongLength = body("let a: field<f32, 2> = [1.0, 2.0, 3.0];");
+    bool wrongElement = body("let a: field<f32, 3> = [1, 2, 3];");
+    bool mixedElements = body("let a = [1, 2.0];");
+    bool nestedField = body("let a = [[1, 2], [3, 4]];");
+    bool badElement = body("let a = [1, missing];");
+
+    return matchingDeclaration && !wrongLength && !wrongElement &&
+           !mixedElements && !nestedField && !badElement;
+}
+
 bool runTypeAnnotationTests()
 {
     bool passing = true;
+    passing &= report("field literal type", testFieldLiteralType());
+    passing &= report("field literal checks", testFieldLiteralChecks());
+    passing &= report("field length is part of the type", testFieldLengthIsPartOfType());
     passing &= report("inferred let and arithmetic", testInferredLetAndArithmetic());
     passing &= report("comparison is bool", testComparisonIsBool());
     passing &= report("variable reference and call", testVariableAndCall());

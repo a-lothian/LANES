@@ -1,0 +1,12 @@
+// a ruleset with field operations becomes one loop over 16 byte chunks:
+// uniforms are splatted before the loop, field lets are v128 locals,
+// and the parameter x is loaded once per chunk
+ruleset scale(x: field<f32, 6>, k: f32) -> field<f32, 6> {
+    let y = x * k;
+    return y + 1.0;
+}
+
+// integer lanes; the comparison produces a bool mask field
+ruleset above(x: field<i32, 4>, limit: integer) -> field<bool, 4> {
+    return -x < limit;
+}

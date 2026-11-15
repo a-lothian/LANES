@@ -1,0 +1,13 @@
+// uniform and / or short-circuit with an if that produces the result
+function safe(n: integer) -> bool {
+    return n != 0 and 10 / n > 1;
+}
+
+function either(a: bool, b: bool) -> bool {
+    return a or not b;
+}
+
+// on fields, masks are all ones or all zeros, so v128.and / v128.not are logical
+ruleset in_range(x: field<f32, 4>, lo: f32, hi: f32) -> field<bool, 4> {
+    return not (x < lo) and x <= hi;
+}

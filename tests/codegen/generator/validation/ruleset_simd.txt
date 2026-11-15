@@ -1,0 +1,77 @@
+(module
+  (memory (export "memory") 1)
+  (func $scale (param $x i32) (param $k f32) (result i32)
+    (local $__x v128)
+    (local $__splat v128)
+    (local $y v128)
+    (local $__splat_1 v128)
+    (local $__offset i32)
+    local.get $k
+    f32x4.splat
+    local.set $__splat
+    f32.const 1
+    f32x4.splat
+    local.set $__splat_1
+    loop $chunk_loop
+      local.get $x
+      local.get $__offset
+      i32.add
+      v128.load
+      local.set $__x
+      local.get $__x
+      local.get $__splat
+      f32x4.mul
+      local.set $y
+      i32.const 0
+      local.get $__offset
+      i32.add
+      local.get $y
+      local.get $__splat_1
+      f32x4.add
+      v128.store
+      local.get $__offset
+      i32.const 16
+      i32.add
+      local.tee $__offset
+      i32.const 32
+      i32.lt_s
+      br_if $chunk_loop
+    end
+    i32.const 0
+    return
+  )
+  (func $above (param $x i32) (param $limit i32) (result i32)
+    (local $__x v128)
+    (local $__splat v128)
+    (local $__offset i32)
+    local.get $limit
+    i32x4.splat
+    local.set $__splat
+    loop $chunk_loop
+      local.get $x
+      local.get $__offset
+      i32.add
+      v128.load
+      local.set $__x
+      i32.const 32
+      local.get $__offset
+      i32.add
+      local.get $__x
+      i32x4.neg
+      local.get $__splat
+      i32x4.lt_s
+      v128.store
+      local.get $__offset
+      i32.const 16
+      i32.add
+      local.tee $__offset
+      i32.const 16
+      i32.lt_s
+      br_if $chunk_loop
+    end
+    i32.const 32
+    return
+  )
+  (export "scale" (func $scale))
+  (export "above" (func $above))
+)

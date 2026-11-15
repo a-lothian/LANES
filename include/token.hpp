@@ -27,12 +27,17 @@ enum class TokenType {
     KeywordWhile,
     KeywordTrue,
     KeywordFalse,
+    KeywordAnd,
+    KeywordOr,
+    KeywordNot,
 
     // punctuation
     LeftBracket,
     RightBracket,
     LeftBrace,
     RightBrace,
+    LeftSquareBracket,
+    RightSquareBracket,
     Comma,
     Colon,
     SemiColon,

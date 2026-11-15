@@ -1,10 +1,12 @@
 #ifndef LANES_WAT_EMITTER_HPP
 #define LANES_WAT_EMITTER_HPP
 
+#include <array>
 #include <string>
 #include <vector>
 
-enum class WatType { I32, F32 };
+enum class WatType { I32, F32, V128 };
+enum class LaneType { I32x4, F32x4 };
 
 struct WatParam
 {
@@ -61,9 +63,21 @@ public:
     void f32LessThanOrEqual();
     void f32GreaterThanOrEqual();
 
+    void f32Absolute();
+    void f32Minimum();
+    void f32Maximum();
+    void f32SquareRoot();
+    void f32Floor();
+    void f32Ceiling();
+    void f32Nearest();  // rounds half to even, e.g. 2.5 -> 2
+
+    // pops a, b, condition -> a if condition is non-zero, else b
+    void select();
+
     // conversions
     void f32ConvertFromSignedI32();
-    void i32TruncateFromSignedF32();
+    void i32TruncateFromSignedF32();            // traps on NaN or out of range
+    void i32SaturatingTruncateFromSignedF32();  // NaN -> 0, out of range -> INT_MIN / INT_MAX
 
     // memory management (for fields)
     // offste is a constant byte offset added to the address on the stack
@@ -73,6 +87,54 @@ public:
     void i32StoreToMemory(unsigned offset = 0);
     void f32LoadFromMemory(unsigned offset = 0);
     void f32StoreToMemory(unsigned offset = 0);
+
+    void memoryCopy();
+    void v128LoadFromMemory(unsigned offset = 0);
+    void v128StoreToMemory(unsigned offset = 0);
+
+    // SIMD operations
+
+    // constants
+    void v128ConstantI32(const std::array<int, 4> &lanes);
+    void v128ConstantF32(const std::array<float, 4> &lanes);
+    void vectorSplat(LaneType lanes);                       // scalar -> the same value in every lane
+    void vectorExtractLane(LaneType lanes, unsigned lane);  // v128 -> the scalar in one lane (0-3)
+    // pops a, b -> a v128 built from 32 bit lanes of a (0-3) and b (4-7),
+    // e.g. {3, 2, 5, 4} gives [a3, a2, b1, b0]
+    void vectorShuffle(const std::array<unsigned, 4> &lanes);
+
+    // arithmetic
+    void vectorAddition(LaneType lanes);
+    void vectorSubtraction(LaneType lanes);
+    void vectorMultiplication(LaneType lanes);
+    void vectorNegation(LaneType lanes);
+    void vectorAbsolute(LaneType lanes);
+    void vectorMinimum(LaneType lanes);  // signed for i32x4
+    void vectorMaximum(LaneType lanes);  // signed for i32x4
+    void f32x4Division();
+    void f32x4SquareRoot();
+    void f32x4Floor();
+    void f32x4Ceiling();
+    void f32x4Nearest();                 // rounds half to even, e.g. 2.5 -> 2
+
+    void vectorEqual(LaneType lanes);
+    void vectorNotEqual(LaneType lanes);
+    void vectorLessThan(LaneType lanes);  // signed for i32x4, as are the three below
+    void vectorGreaterThan(LaneType lanes);
+    void vectorLessThanOrEqual(LaneType lanes);
+    void vectorGreaterThanOrEqual(LaneType lanes);
+
+    // conversions
+    void tof32x4();  // i32x4 -> f32x4
+    void toi32x4();  // f32x4 -> i32x4, truncates toward zero,
+
+    // bitwise operations on all 128 bits
+    void v128And();
+    void v128Or();
+    void v128Not();
+    void v128BitSelect();  // pops a, b, mask -> bits of a where mask is 1, bits of b where it is 0
+    void v128AnyTrue();    // -> i32 1 if any bit is set
+    void i32x4AllTrue();   // -> i32 1 if every lane is non-zero
 
     // stack and call management
     void call(const std::string &fn);
@@ -85,6 +147,8 @@ public:
     void beginBlock(const std::string &label = "");
     void beginLoop(const std::string &label = "");
     void beginIf(const std::string &label = "");
+    // an if that leaves one value on the stack: both branches must push it
+    void beginIfWithResult(WatType result);
     void beginElse();
     void end();
     void branch(const std::string &label);

@@ -1,3 +1,7 @@
-ruleset step(x: integer) -> integer {
+// rulesets are straight-line (one loop body), so they cannot branch: use select
+ruleset step(x: field<f32, 4>, s: f32) -> field<f32, 4> {
+    if s > 0.0 {
+        return x * s;
+    }
     return x;
 }

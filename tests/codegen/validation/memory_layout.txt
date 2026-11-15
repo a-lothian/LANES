@@ -1,0 +1,11 @@
+empty: yes
+reserve 16 -> 0
+reserve 20 -> 16
+reserve 4 -> 48
+reserve 70000 -> 64
+reserve 4294967296 -> too large
+size: 70064
+pages: 2
+(module
+  (memory (export "memory") 2)
+)

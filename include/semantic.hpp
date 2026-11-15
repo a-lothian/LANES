@@ -20,14 +20,34 @@ private:
 
     void registerFunction(const FunctionDecl &function);
     void registerRuleset(const RulesetDecl &ruleset);
+    // false if a function / ruleset name is reserved
+    bool checkDeclarationName(const std::string &name);
+
+    // built-in functions
+    static bool isBuiltin(const std::string &name);
+    static bool isReduction(const std::string &name);
+    static bool isElementwiseBuiltin(const std::string &name);
+    Type analyseElementwiseBuiltin(const CallExpr &call);
+    Type analyseBuiltinCall(const CallExpr &call);
+    
     void analyseFunction(const FunctionDecl &function);
     void analyseBlock(const BlockStatement &block, bool createScope = true);
     void analyseStatement(const Statement &statement);
     void analyseRuleset(const RulesetDecl &ruleset);
+    void checkRulesetContract(const RulesetDecl &ruleset);
     void analyseCondition(const Expression &condition, const std::string &statementName);
     Type analyseExpression(const Expression &expression);
     Type inferExpressionType(const Expression &expression);
+    Type analyseFieldLiteral(const FieldLiteralExpr &literal);
+
+    bool inRuleset_ = false;
+    bool checkInRuleset();
+    Type analyseFieldBinary(BinaryOperator op, const Type &left, const Type &right);
+    // false if a declared field type holds something other than given type
+    bool checkFieldElementType(const Type &type, const std::string &context);
     Type currentReturnType_{TypeKind::Void, nullptr};
+
+    void checkRecursiveFieldUse(const Program &program);
 
     bool sameType(const Type &left, const Type &right) const;
     // true if every path through the statement ends in a return

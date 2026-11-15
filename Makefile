@@ -10,7 +10,7 @@ OBJS := $(SRCS:%.cpp=$(BUILD)/%.o)
 
 LIB_OBJS     := $(SRCS:main.cpp=)
 LIB_OBJS     := $(patsubst %.cpp,$(BUILD)/%.o,$(filter %.cpp,$(LIB_OBJS)))
-TEST_SRCS    := tests/run_tests.cpp tests/lexer/run_lexer_test.cpp tests/parser/run_parser_test.cpp  tests/codegen/run_wat_test.cpp tests/codegen/run_codegen_test.cpp tests/semantic/run_symbol_table_test.cpp tests/semantic/run_control_flow_test.cpp tests/semantic/run_type_annotation_test.cpp
+TEST_SRCS    := tests/run_tests.cpp tests/lexer/run_lexer_test.cpp tests/parser/run_parser_test.cpp  tests/codegen/run_wat_test.cpp tests/codegen/run_codegen_test.cpp tests/semantic/run_symbol_table_test.cpp tests/semantic/run_control_flow_test.cpp tests/semantic/run_type_annotation_test.cpp tests/semantic/run_recursion_test.cpp tests/semantic/run_builtin_test.cpp tests/semantic/run_field_operation_test.cpp tests/semantic/run_ruleset_call_test.cpp tests/semantic/run_reduction_test.cpp tests/semantic/run_math_builtin_test.cpp tests/semantic/run_logical_test.cpp tests/semantic/run_ruleset_contract_test.cpp tests/exec/run_exec_test.cpp
 TEST_TARGET  := $(BUILD)/run_tests
 
 all: $(TARGET)

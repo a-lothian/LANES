@@ -1,0 +1,51 @@
+// fields are values: let, assignment and calls copy the data, never share it
+
+// `first` keeps the first iteration's value even though `cur`'s block is rewritten
+function loop_copy() -> integer {
+    let first = [5, 5];
+    let i = 0;
+    while i < 2 {
+        let cur = [i, i];
+        if i == 0 {
+            first = cur;
+        }
+        i = i + 1;
+    }
+    print(first);
+    return 0;
+}
+
+function make(n: integer) -> field<integer, 2> {
+    return [n, n * 10];
+}
+
+// each call result gets its own temporary, so a and b are different
+function pick(a: field<integer, 2>, b: field<integer, 2>) -> field<integer, 2> {
+    print(a);
+    print(b);
+    return a;
+}
+
+// x is copied on entry, so assigning to it leaves the caller's field alone
+function overwrite(x: field<integer, 2>) -> integer {
+    x = [7, 7];
+    print(x);
+    return 0;
+}
+
+function main() -> integer {
+    loop_copy();
+
+    let r = pick(make(1), make(2));
+    let s = make(3);
+    print(r);
+    print(s);
+
+    let mine = [1, 2];
+    overwrite(mine);
+    let copy = mine;
+    copy = [9, 9];
+    print(mine);
+    print(copy);
+    return 0;
+}

@@ -1,6 +1,7 @@
 #ifndef LANES_AST_H
 #define LANES_AST_H
 
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <memory>
@@ -20,6 +21,9 @@ struct Type
 {
     TypeKind kind;
     std::shared_ptr<Type> elementType;
+
+    // only for field types
+    std::uint32_t length = 0;
 };
 
 // base structure for all expressions
@@ -47,13 +51,16 @@ enum class BinaryOperator
     LessThan,
     GreaterThan,
     LessThanEqual,
-    GreaterThanEqual
+    GreaterThanEqual,
+    And,
+    Or
 };
 
 // unary operators
 enum class UnaryOperator
 {
-    Negate
+    Negate,
+    Not
 };
 
 // represents a binary expression, e.g. a + b
@@ -76,6 +83,12 @@ struct LiteralExpr : Expression
 {
     std::string value;
     Type type;
+};
+
+// represents a field literal, e.g. [1.0, 2.0, x * 2.0]
+struct FieldLiteralExpr : Expression
+{
+    std::vector<std::unique_ptr<Expression>> elements;
 };
 
 // represents a variable reference, e.g. result

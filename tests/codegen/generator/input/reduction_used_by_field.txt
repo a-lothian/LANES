@@ -1,0 +1,4 @@
+// a field result cannot use a reduction: sum(x) is only known after the loop
+ruleset normalise(x: field<f32, 4>) -> field<f32, 4> {
+    return x / sum(x);
+}

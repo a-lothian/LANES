@@ -1,0 +1,5 @@
+// k is set after the loop, but the second sum needs it inside the loop
+ruleset weighted(x: field<f32, 4>) -> f32 {
+    let k = sum(x);
+    return sum(x * k);
+}

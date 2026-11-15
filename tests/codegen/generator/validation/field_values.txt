@@ -1,0 +1,157 @@
+(module
+  (memory (export "memory") 1)
+  (func $loop_copy (result i32)
+    (local $first i32)
+    (local $i i32)
+    (local $cur i32)
+    i32.const 0
+    i32.const 5
+    i32.store
+    i32.const 0
+    i32.const 5
+    i32.store offset=4
+    i32.const 0
+    local.set $first
+    i32.const 0
+    local.set $i
+    block $while_exit_0
+      loop $while_loop_0
+        local.get $i
+        i32.const 2
+        i32.lt_s
+        i32.eqz
+        br_if $while_exit_0
+        i32.const 16
+        local.get $i
+        i32.store
+        i32.const 16
+        local.get $i
+        i32.store offset=4
+        i32.const 16
+        local.set $cur
+        local.get $i
+        i32.const 0
+        i32.eq
+        if
+          local.get $first
+          local.get $cur
+          i32.const 8
+          memory.copy
+        end
+        local.get $i
+        i32.const 1
+        i32.add
+        local.set $i
+        br $while_loop_0
+      end
+    end
+    i32.const 0
+    return
+  )
+  (func $make (param $n i32) (result i32)
+    i32.const 32
+    local.get $n
+    i32.store
+    i32.const 32
+    local.get $n
+    i32.const 10
+    i32.mul
+    i32.store offset=4
+    i32.const 32
+    return
+  )
+  (func $pick (param $a i32) (param $b i32) (result i32)
+    local.get $a
+    return
+  )
+  (func $calls (result i32)
+    (local $r i32)
+    (local $s i32)
+    i32.const 48
+    i32.const 64
+    i32.const 1
+    call $make
+    i32.const 8
+    memory.copy
+    i32.const 64
+    i32.const 80
+    i32.const 2
+    call $make
+    i32.const 8
+    memory.copy
+    i32.const 80
+    call $pick
+    i32.const 8
+    memory.copy
+    i32.const 48
+    local.set $r
+    i32.const 96
+    i32.const 3
+    call $make
+    i32.const 8
+    memory.copy
+    i32.const 96
+    local.set $s
+    i32.const 0
+    return
+  )
+  (func $overwrite (param $x i32) (result i32)
+    i32.const 112
+    local.get $x
+    i32.const 8
+    memory.copy
+    i32.const 112
+    local.set $x
+    local.get $x
+    i32.const 128
+    i32.const 7
+    i32.store
+    i32.const 128
+    i32.const 7
+    i32.store offset=4
+    i32.const 128
+    i32.const 8
+    memory.copy
+    i32.const 0
+    return
+  )
+  (func $params (result i32)
+    (local $mine i32)
+    (local $copy i32)
+    i32.const 144
+    i32.const 1
+    i32.store
+    i32.const 144
+    i32.const 2
+    i32.store offset=4
+    i32.const 144
+    local.set $mine
+    local.get $mine
+    call $overwrite
+    drop
+    i32.const 160
+    local.get $mine
+    i32.const 8
+    memory.copy
+    i32.const 160
+    local.set $copy
+    local.get $copy
+    i32.const 176
+    i32.const 9
+    i32.store
+    i32.const 176
+    i32.const 9
+    i32.store offset=4
+    i32.const 176
+    i32.const 8
+    memory.copy
+    i32.const 0
+    return
+  )
+  (export "loop_copy" (func $loop_copy))
+  (export "make" (func $make))
+  (export "pick" (func $pick))
+  (export "calls" (func $calls))
+  (export "overwrite" (func $overwrite))
+  (export "params" (func $params))
+)

@@ -1,0 +1,9 @@
+function main() -> integer {
+    print([1, -2, 3]);
+    print([0.5, 0.1, -4.0, 1.0 / 3.0, 100.0]);
+    print([true, false, 2 > 1]);
+
+    let x: field<f32, 2> = [1.5, 2.5];
+    print(x);
+    return 0;
+}

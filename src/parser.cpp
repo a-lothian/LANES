@@ -289,6 +289,7 @@ Type Parser::parseType()
         return Type{TypeKind::Void, nullptr};
     }
 
+    // field<element type, length>
     if (name == "field")
     {
         consume(
@@ -298,19 +299,56 @@ Type Parser::parseType()
         Type elementType = parseType();
 
         consume(
+            TokenType::Comma,
+            "Expected ',' and a length after field element type.");
+
+        std::uint32_t length = parseFieldLength();
+
+        consume(
             TokenType::GreaterThan,
-            "Expected '>' after field element type.");
+            "Expected '>' after field length.");
 
         Type fieldType;
 
         fieldType.kind = TypeKind::Field;
         fieldType.elementType =
             std::make_shared<Type>(std::move(elementType));
+        fieldType.length = length;
 
         return fieldType;
     }
 
     fail(typeToken, "Unknown type '" + name + "'.");
+}
+
+// the length in field<T, length> must be a positive integer literal known at compile time
+std::uint32_t Parser::parseFieldLength()
+{
+    const Token &lengthToken =
+        consume(TokenType::LiteralInt, "Expected an integer field length.");
+
+    // integer literals are digits only
+    unsigned long long length = 0;
+    try
+    {
+        length = std::stoull(lexeme(lengthToken));
+    }
+    catch (const std::out_of_range &)
+    {
+        fail(lengthToken, "Field length is too large.");
+    }
+
+    if (length > UINT32_MAX)
+    {
+        fail(lengthToken, "Field length is too large.");
+    }
+
+    if (length == 0)
+    {
+        fail(lengthToken, "Field length must be at least 1.");
+    }
+
+    return static_cast<std::uint32_t>(length);
 }
 
 std::unique_ptr<BlockStatement> Parser::parseBlock()
@@ -486,8 +524,55 @@ std::unique_ptr<Statement> Parser::parseExpressionStatement()
     return statement;
 }
 
+// operation precedence: or, and, not, == !=, < > <= >=, + -, * /, unary -
+// so `not a == b or c` is `(not (a == b)) or c`
 std::unique_ptr<Expression> Parser::parseExpression()
 {
+    return parseOr();
+}
+
+std::unique_ptr<Expression> Parser::parseOr()
+{
+    std::unique_ptr<Expression> expression = parseAnd();
+
+    while (match(TokenType::KeywordOr))
+    {
+        auto binary = std::make_unique<BinaryExpr>();
+        binary->op = BinaryOperator::Or;
+        binary->left = std::move(expression);
+        binary->right = parseAnd();
+        expression = std::move(binary);
+    }
+
+    return expression;
+}
+
+std::unique_ptr<Expression> Parser::parseAnd()
+{
+    std::unique_ptr<Expression> expression = parseNot();
+
+    while (match(TokenType::KeywordAnd))
+    {
+        auto binary = std::make_unique<BinaryExpr>();
+        binary->op = BinaryOperator::And;
+        binary->left = std::move(expression);
+        binary->right = parseNot();
+        expression = std::move(binary);
+    }
+
+    return expression;
+}
+
+std::unique_ptr<Expression> Parser::parseNot()
+{
+    if (match(TokenType::KeywordNot))
+    {
+        auto expression = std::make_unique<UnaryExpr>();
+        expression->op = UnaryOperator::Not;
+        expression->operand = parseNot();
+        return expression;
+    }
+
     return parseEquality();
 }
 
@@ -722,6 +807,26 @@ std::unique_ptr<Expression> Parser::parsePrimary()
             std::make_unique<VariableExpr>();
 
         expression->name = std::move(name);
+
+        return expression;
+    }
+
+    // field literal: one or more comma separated expressions in square brackets
+    // [] is rejected because a field needs at least one element
+    if (match(TokenType::LeftSquareBracket))
+    {
+        auto expression =
+            std::make_unique<FieldLiteralExpr>();
+
+        do
+        {
+            expression->elements.push_back(
+                parseExpression());
+        } while (match(TokenType::Comma));
+
+        consume(
+            TokenType::RightSquareBracket,
+            "Expected ']' after field elements.");
 
         return expression;
     }

@@ -6,6 +6,15 @@
 #include "semantic/run_symbol_table_test.h"
 #include "semantic/run_control_flow_test.h"
 #include "semantic/run_type_annotation_test.h"
+#include "semantic/run_recursion_test.h"
+#include "semantic/run_builtin_test.h"
+#include "semantic/run_field_operation_test.h"
+#include "semantic/run_ruleset_call_test.h"
+#include "semantic/run_reduction_test.h"
+#include "semantic/run_math_builtin_test.h"
+#include "semantic/run_logical_test.h"
+#include "semantic/run_ruleset_contract_test.h"
+#include "exec/run_exec_test.h"
 
 int main()
 {
@@ -18,6 +27,15 @@ int main()
     passing &= runSymbolTableTests();
     passing &= runControlFlowSemanticTests();
     passing &= runTypeAnnotationTests();
+    passing &= runRecursionTests();
+    passing &= runBuiltinTests();
+    passing &= runFieldOperationTests();
+    passing &= runRulesetCallTests();
+    passing &= runReductionTests();
+    passing &= runMathBuiltinTests();
+    passing &= runLogicalTests();
+    passing &= runRulesetContractTests();
+    passing &= runExecTests();
 
     std::cout << "\nOverall Result: " << (passing ? "PASSED" : "FAILED") << "\n";
 

@@ -1,1 +1,1 @@
-codegen: Ruleset 'step' cannot be compiled: ruleset code generation is not supported yet
+semantic: Ruleset 'step' cannot contain if statements (use select instead)

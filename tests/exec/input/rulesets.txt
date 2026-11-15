@@ -1,0 +1,36 @@
+// rulesets are called like functions
+
+// a uniform result comes from a reduction
+ruleset total(x: field<f32, 4>, k: f32) -> f32 {
+    return sum(x) * k;
+}
+
+// a ruleset calling a ruleset counts as a reduction too
+ruleset twice(x: field<f32, 4>) -> f32 {
+    return total(x, 2.0);
+}
+
+// field passes through unchanged; the caller gets its own copy
+ruleset pass(x: field<f32, 4>) -> field<f32, 4> {
+    let y = x;
+    return y;
+}
+
+// a field ruleset can use a uniform from another ruleset: total runs before the loop
+ruleset normalise(x: field<f32, 4>) -> field<f32, 4> {
+    return x / total(x, 1.0);
+}
+
+function main() -> integer {
+    print(total([1.0, 2.0, 3.0, 4.0], 0.5));
+    print(twice([1.0, 2.0, 3.0, 4.0]));
+
+    let a = [1.0, 2.0, 3.0, 4.0];
+    let b = pass(a);
+    a = [9.0, 9.0, 9.0, 9.0];
+    print(b);
+    print(a);
+
+    print(normalise([1.0, 2.0, 3.0, 4.0]));
+    return 0;
+}
