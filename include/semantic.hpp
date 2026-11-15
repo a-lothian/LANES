@@ -34,6 +34,12 @@ private:
     Type analyseExpression(const Expression &expression);
     Type inferExpressionType(const Expression &expression);
     Type analyseFieldLiteral(const FieldLiteralExpr &literal);
+
+    bool inRuleset_ = false;
+    bool checkInRuleset();
+    Type analyseFieldBinary(BinaryOperator op, const Type &left, const Type &right);
+    // false if a declared field type holds something other than given type
+    bool checkFieldElementType(const Type &type, const std::string &context);
     Type currentReturnType_{TypeKind::Void, nullptr};
 
     void checkRecursiveFieldUse(const Program &program);

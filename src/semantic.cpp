@@ -388,6 +388,13 @@ void SemanticAnalyser::analyseFunction(const FunctionDecl &function)
 {
     // remember the return type expected by this function
     currentReturnType_ = function.returnType;
+    inRuleset_ = false;
+
+    // an invalid return type is reported once
+    if (!checkFieldElementType(function.returnType, "return type of '" + function.name + "'"))
+    {
+        currentReturnType_ = Type{TypeKind::Error, nullptr};
+    }
 
     // create a scope for the function's parameters and variables
     symbols_.enterScope();
@@ -395,6 +402,8 @@ void SemanticAnalyser::analyseFunction(const FunctionDecl &function)
     // add each parameter to the function scope
     for (const Parameter &parameter : function.parameters)
     {
+        checkFieldElementType(parameter.type, "parameter '" + parameter.name + "'");
+
         Symbol symbol{
             SymbolKind::Variable,
             parameter.type,
@@ -441,6 +450,12 @@ void SemanticAnalyser::analyseRuleset(const RulesetDecl &ruleset)
 {
     // remember the expected return type
     currentReturnType_ = ruleset.returnType;
+    inRuleset_ = true;
+
+    if (!checkFieldElementType(ruleset.returnType, "return type of '" + ruleset.name + "'"))
+    {
+        currentReturnType_ = Type{TypeKind::Error, nullptr};
+    }
 
     // create a scope for the ruleset parameters
     symbols_.enterScope();
@@ -448,6 +463,8 @@ void SemanticAnalyser::analyseRuleset(const RulesetDecl &ruleset)
     // add each parameter to the current scope
     for (const Parameter &parameter : ruleset.parameters)
     {
+        checkFieldElementType(parameter.type, "parameter '" + parameter.name + "'");
+
         Symbol symbol{
             SymbolKind::Variable,
             parameter.type,
@@ -508,6 +525,12 @@ void SemanticAnalyser::analyseStatement(const Statement &statement)
         // start with the declared type
         Type variableType = variable->type;
 
+        // an invalid declared type is reported once, without a type mismatch on top
+        if (!checkFieldElementType(variableType, "variable '" + variable->name + "'"))
+        {
+            variableType = Type{TypeKind::Error, nullptr};
+        }
+
         if (variable->initializer != nullptr)
         {
             // determine the initial value's type
@@ -533,6 +556,7 @@ void SemanticAnalyser::analyseStatement(const Statement &statement)
             }
             // check explicitly declared variable types
             else if (valueType.kind != TypeKind::Error &&
+                     variableType.kind != TypeKind::Error &&
                      !sameType(valueType, variableType))
             {
                 errors_.push_back(
@@ -587,6 +611,7 @@ void SemanticAnalyser::analyseStatement(const Statement &statement)
             }
             // check if the returned type matches the function type
             else if (returnType.kind != TypeKind::Error &&
+                     currentReturnType_.kind != TypeKind::Error &&
                      !sameType(returnType, currentReturnType_))
             {
                 errors_.push_back("Return type mismatch");
@@ -813,6 +838,13 @@ Type SemanticAnalyser::inferExpressionType(const Expression &expression)
             return Type{TypeKind::Error, nullptr};
         }
 
+        // element-wise operations, e.g. a + b, a * 2.0, a < b
+        if (leftType.kind == TypeKind::Field ||
+            rightType.kind == TypeKind::Field)
+        {
+            return analyseFieldBinary(binary->op, leftType, rightType);
+        }
+
         // both sides must have matching types
         if (!sameType(leftType, rightType))
         {
@@ -901,6 +933,26 @@ Type SemanticAnalyser::inferExpressionType(const Expression &expression)
         // check the negation operator (-)
         if (unary->op == UnaryOperator::Negate)
         {
+            // -a negates every element
+            if (operandType.kind == TypeKind::Field)
+            {
+                if (!checkInRuleset())
+                {
+                    return Type{TypeKind::Error, nullptr};
+                }
+
+                TypeKind element = operandType.elementType->kind;
+                if (element != TypeKind::Int && element != TypeKind::Float)
+                {
+                    errors_.push_back(
+                        "Negation requires a numeric type");
+
+                    return Type{TypeKind::Error, nullptr};
+                }
+
+                return operandType;
+            }
+
             // negation only works with integers and floats
             if (operandType.kind != TypeKind::Int &&
                 operandType.kind != TypeKind::Float)
@@ -1008,6 +1060,113 @@ Type SemanticAnalyser::inferExpressionType(const Expression &expression)
     errors_.push_back("Unsupported expression");
 
     return Type{TypeKind::Error, nullptr};
+}
+
+// field arithmetic, comparison and negation are only allowed inside rulesets
+// normal functions can still create, copy, pass and print fields
+bool SemanticAnalyser::checkInRuleset()
+{
+    if (!inRuleset_)
+    {
+        errors_.push_back(
+            "Field operations are only allowed in rulesets");
+        return false;
+    }
+    return true;
+}
+
+// a binary operation where at least one side is a field, applied to each element:
+//   field <op> field     both fields must have the same type (element type and length)
+//   field <op> uniform   the uniform is used for every element (broadcast), so it must
+//   uniform <op> field   have the field's element type, e.g. field<f32, 4> * f32
+// arithmetic gives a field of the same type, comparisons give field<bool, same length>
+Type SemanticAnalyser::analyseFieldBinary(
+    BinaryOperator op,
+    const Type &left,
+    const Type &right)
+{
+    if (!checkInRuleset())
+    {
+        return Type{TypeKind::Error, nullptr};
+    }
+
+    const Type &field = left.kind == TypeKind::Field ? left : right;
+    const Type &other = left.kind == TypeKind::Field ? right : left;
+    const Type &element = *field.elementType;
+
+    bool compatible = other.kind == TypeKind::Field
+                          ? sameType(left, right)
+                          : sameType(other, element);
+
+    if (!compatible)
+    {
+        errors_.push_back("Binary expression has mismatched types");
+        return Type{TypeKind::Error, nullptr};
+    }
+
+    Type boolField{TypeKind::Field, std::make_shared<Type>(Type{TypeKind::Bool, nullptr})};
+    boolField.length = field.length;
+
+    switch (op)
+    {
+    case BinaryOperator::Add:
+    case BinaryOperator::Subtract:
+    case BinaryOperator::Multiply:
+        if (element.kind != TypeKind::Int && element.kind != TypeKind::Float)
+        {
+            errors_.push_back("Arithmetic requires numeric types");
+            return Type{TypeKind::Error, nullptr};
+        }
+        return field;
+
+    // SIMD has no integer division
+    case BinaryOperator::Divide:
+        if (element.kind != TypeKind::Float)
+        {
+            errors_.push_back("Division of fields requires float elements");
+            return Type{TypeKind::Error, nullptr};
+        }
+        return field;
+
+    case BinaryOperator::Equal:
+    case BinaryOperator::NotEqual:
+        return boolField;
+
+    case BinaryOperator::LessThan:
+    case BinaryOperator::GreaterThan:
+    case BinaryOperator::LessThanEqual:
+    case BinaryOperator::GreaterThanEqual:
+        if (element.kind != TypeKind::Int && element.kind != TypeKind::Float)
+        {
+            errors_.push_back("Comparison requires numeric types");
+            return Type{TypeKind::Error, nullptr};
+        }
+        return boolField;
+    }
+
+    errors_.push_back("Unsupported binary operator");
+    return Type{TypeKind::Error, nullptr};
+}
+
+// field<T, N> written in a declaration may only hold i32, f32 or bool
+// (fields of fields, or of void, cannot be laid out as SIMD lanes)
+bool SemanticAnalyser::checkFieldElementType(const Type &type, const std::string &context)
+{
+    if (type.kind != TypeKind::Field)
+    {
+        return true;
+    }
+
+    TypeKind element = type.elementType == nullptr ? TypeKind::Error : type.elementType->kind;
+
+    if (element != TypeKind::Int && element != TypeKind::Float && element != TypeKind::Bool)
+    {
+        errors_.push_back(
+            "Field elements must be integer, float or bool (" + context + ")");
+        return false;
+    }
+
+    return true;
 }
 
 // a field literal's type is field<element type, number of elements>
