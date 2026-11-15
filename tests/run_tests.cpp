@@ -6,6 +6,7 @@
 #include "semantic/run_symbol_table_test.h"
 #include "semantic/run_control_flow_test.h"
 #include "semantic/run_type_annotation_test.h"
+#include "semantic/run_recursion_test.h"
 
 int main()
 {
@@ -18,6 +19,7 @@ int main()
     passing &= runSymbolTableTests();
     passing &= runControlFlowSemanticTests();
     passing &= runTypeAnnotationTests();
+    passing &= runRecursionTests();
 
     std::cout << "\nOverall Result: " << (passing ? "PASSED" : "FAILED") << "\n";
 

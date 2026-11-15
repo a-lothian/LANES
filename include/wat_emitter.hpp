@@ -74,6 +74,8 @@ public:
     void f32LoadFromMemory(unsigned offset = 0);
     void f32StoreToMemory(unsigned offset = 0);
 
+    void memoryCopy();
+
     // stack and call management
     void call(const std::string &fn);
     void drop();

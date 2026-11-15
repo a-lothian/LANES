@@ -15,7 +15,7 @@ static std::vector<std::string> tests = {
     "add_function.txt", "while_loop.txt", "if_else_chain.txt",
     "float_arithmetic.txt", "shadowing.txt", "calls.txt",
     "bool_comparison.txt", "nested_loops.txt", "ruleset_unsupported.txt",
-    "field_literal.txt"};
+    "field_literal.txt", "field_values.txt"};
 
 static FileHandler reader;
 

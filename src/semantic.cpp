@@ -1,3 +1,5 @@
+#include <functional>
+#include <unordered_map>
 #include <unordered_set>
 #include "semantic.hpp"
 
@@ -73,8 +75,191 @@ bool SemanticAnalyser::analyse(const Program &program)
         }
     }
 
+    checkRecursiveFieldUse(program);
+
     // return true if no semantic errors were found
     return errors_.empty();
+}
+
+// calls `visit` on every expression inside the statement, including sub-expressions
+static void forEachExpression(const Expression &expression,
+                              const std::function<void(const Expression &)> &visit)
+{
+    visit(expression);
+
+    if (const BinaryExpr *binary = dynamic_cast<const BinaryExpr *>(&expression))
+    {
+        forEachExpression(*binary->left, visit);
+        forEachExpression(*binary->right, visit);
+    }
+    else if (const UnaryExpr *unary = dynamic_cast<const UnaryExpr *>(&expression))
+    {
+        forEachExpression(*unary->operand, visit);
+    }
+    else if (const CallExpr *call = dynamic_cast<const CallExpr *>(&expression))
+    {
+        for (const std::unique_ptr<Expression> &argument : call->arguments)
+        {
+            forEachExpression(*argument, visit);
+        }
+    }
+    else if (const FieldLiteralExpr *field = dynamic_cast<const FieldLiteralExpr *>(&expression))
+    {
+        for (const std::unique_ptr<Expression> &element : field->elements)
+        {
+            forEachExpression(*element, visit);
+        }
+    }
+}
+
+static void forEachExpression(const Statement &statement,
+                              const std::function<void(const Expression &)> &visit)
+{
+    // statements can hold null pieces after a parse of an incomplete program
+    auto visitExpression = [&](const std::unique_ptr<Expression> &expression) {
+        if (expression != nullptr)
+        {
+            forEachExpression(*expression, visit);
+        }
+    };
+
+    if (const LetStatement *let = dynamic_cast<const LetStatement *>(&statement))
+    {
+        visitExpression(let->initializer);
+    }
+    else if (const ReturnStatement *returnStatement = dynamic_cast<const ReturnStatement *>(&statement))
+    {
+        visitExpression(returnStatement->value);
+    }
+    else if (const ExpressionStatement *expressionStatement = dynamic_cast<const ExpressionStatement *>(&statement))
+    {
+        visitExpression(expressionStatement->expression);
+    }
+    else if (const AssignmentStatement *assignment = dynamic_cast<const AssignmentStatement *>(&statement))
+    {
+        visitExpression(assignment->value);
+    }
+    else if (const BlockStatement *block = dynamic_cast<const BlockStatement *>(&statement))
+    {
+        for (const std::unique_ptr<Statement> &inner : block->statements)
+        {
+            forEachExpression(*inner, visit);
+        }
+    }
+    else if (const IfStatement *ifStatement = dynamic_cast<const IfStatement *>(&statement))
+    {
+        visitExpression(ifStatement->condition);
+        if (ifStatement->thenBlock != nullptr)
+        {
+            forEachExpression(*ifStatement->thenBlock, visit);
+        }
+        if (ifStatement->elseBranch != nullptr)
+        {
+            forEachExpression(*ifStatement->elseBranch, visit);
+        }
+    }
+    else if (const WhileStatement *whileStatement = dynamic_cast<const WhileStatement *>(&statement))
+    {
+        visitExpression(whileStatement->condition);
+        if (whileStatement->body != nullptr)
+        {
+            forEachExpression(*whileStatement->body, visit);
+        }
+    }
+}
+
+// true if the function's signature or any expression in its body has a field type
+// (field variables, literals, calls returning fields and field arguments all count)
+static bool usesFields(const FunctionDecl &function)
+{
+    if (function.returnType.kind == TypeKind::Field)
+    {
+        return true;
+    }
+
+    for (const Parameter &parameter : function.parameters)
+    {
+        if (parameter.type.kind == TypeKind::Field)
+        {
+            return true;
+        }
+    }
+
+    bool found = false;
+    if (function.body != nullptr)
+    {
+        forEachExpression(*function.body, [&](const Expression &expression) {
+            if (expression.resolvedType.kind == TypeKind::Field)
+            {
+                found = true;
+            }
+        });
+    }
+    return found;
+}
+
+// code generation gives every field variable, literal, copied parameter and call
+// result a fixed block of memory. if a function could be running twice at once, the inner 
+// call would overwrite the outer call's fields, so recursive functions
+// (including mutual recursion, e.g. f calls g calls f) may not use fields at all
+void SemanticAnalyser::checkRecursiveFieldUse(const Program &program)
+{
+    // the functions each function calls directly only the first declaration of a name counts
+    std::unordered_map<std::string, std::unordered_set<std::string>> calls;
+    std::vector<const FunctionDecl *> functions;
+
+    for (const std::unique_ptr<Declaration> &declaration : program.declarations)
+    {
+        const FunctionDecl *function = dynamic_cast<const FunctionDecl *>(declaration.get());
+
+        if (function == nullptr || calls.count(function->name) != 0)
+        {
+            continue;
+        }
+
+        functions.push_back(function);
+        std::unordered_set<std::string> &callees = calls[function->name];
+
+        if (function->body != nullptr)
+        {
+            forEachExpression(*function->body, [&](const Expression &expression) {
+                if (const CallExpr *call = dynamic_cast<const CallExpr *>(&expression))
+                {
+                    callees.insert(call->name);
+                }
+            });
+        }
+    }
+
+    for (const FunctionDecl *function : functions)
+    {
+        // a function is recursive if following calls from it leads back to it
+        std::unordered_set<std::string> visited;
+        std::vector<std::string> toVisit(calls[function->name].begin(), calls[function->name].end());
+        bool recursive = false;
+
+        while (!toVisit.empty() && !recursive)
+        {
+            std::string name = toVisit.back();
+            toVisit.pop_back();
+
+            if (name == function->name)
+            {
+                recursive = true;
+            }
+            else if (visited.insert(name).second && calls.count(name) != 0)
+            {
+                toVisit.insert(toVisit.end(), calls[name].begin(), calls[name].end());
+            }
+        }
+
+        if (recursive && usesFields(*function))
+        {
+            errors_.push_back(
+                "Recursive function cannot use fields: '" + function->name +
+                "' (fields have fixed memory, so a recursive call would overwrite them)");
+        }
+    }
 }
 
 // registers a function and its type information in the symbol table

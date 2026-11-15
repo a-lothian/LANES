@@ -49,6 +49,16 @@ private:
     void generateExpression(const Expression &expression);
     void generateLiteral(const LiteralExpr &literal);
     void generateFieldLiteral(const FieldLiteralExpr &literal);
+    void generateCall(const CallExpr &call);
+
+    // fields use copy value semantics
+    bool reserveField(const Type &type, std::uint32_t &address, const std::string &context);
+    void writeFieldLiteral(const FieldLiteralExpr &literal, std::uint32_t address);
+    void copyField(const Type &type);
+    void generateFieldSource(const Expression &expression);
+    void generateFieldLet(const LetStatement &statement);
+    void generateFieldAssignment(const AssignmentStatement &assignment);
+    void copyAssignedFieldParameters(const FunctionDecl &function);
 
     // every field element (i32, f32 or bool) takes 4 bytes
     static constexpr std::uint32_t FIELD_ELEMENT_BYTES = 4;

@@ -29,6 +29,8 @@ private:
     Type inferExpressionType(const Expression &expression);
     Type analyseFieldLiteral(const FieldLiteralExpr &literal);
     Type currentReturnType_{TypeKind::Void, nullptr};
+    
+    void checkRecursiveFieldUse(const Program &program);
 
     bool sameType(const Type &left, const Type &right) const;
     // true if every path through the statement ends in a return

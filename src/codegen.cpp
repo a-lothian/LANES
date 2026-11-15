@@ -212,6 +212,8 @@ void CodeGenerator::generateFunction(const FunctionDecl &function)
         declareParameter(param.name);
     }
 
+    copyAssignedFieldParameters(function);
+
     if (function.body != nullptr)
     {
         generateBlock(*function.body, false);
@@ -298,6 +300,12 @@ void CodeGenerator::generateStatement(const Statement &statement)
 
     if (const AssignmentStatement *assignment = dynamic_cast<const AssignmentStatement *>(&statement))
     {
+        if (assignment->value->resolvedType.kind == TypeKind::Field)
+        {
+            generateFieldAssignment(*assignment);
+            return;
+        }
+
         generateExpression(*assignment->value);
         function_->localSet(lookupLocal(assignment->name));
         return;
@@ -320,6 +328,12 @@ void CodeGenerator::generateStatement(const Statement &statement)
 
 void CodeGenerator::generateLet(const LetStatement &statement)
 {
+    if (statement.resolvedType.kind == TypeKind::Field)
+    {
+        generateFieldLet(statement);
+        return;
+    }
+
     if (statement.initializer != nullptr)
     {
         generateExpression(*statement.initializer);
@@ -415,12 +429,27 @@ void CodeGenerator::generateExpression(const Expression &expression)
 
     if (const CallExpr *call = dynamic_cast<const CallExpr *>(&expression))
     {
-        // arguments are pushed left to right, then the call consumes them
-        for (const std::unique_ptr<Expression> &argument : call->arguments)
+        // a returned field is the address of memory inside the callee, which the
+        // next call to the same function overwrites. e.g. in g(f(1), f(2)) both
+        // results would share one block, so the result is copied into a temporary
+        // block for this call site:
+        //   i32.const <temporary>   <call>   <bytes>   memory.copy   i32.const <temporary>
+        if (call->resolvedType.kind == TypeKind::Field)
         {
-            generateExpression(*argument);
+            std::uint32_t temporary = 0;
+            if (!reserveField(call->resolvedType, temporary, "result of '" + call->name + "'"))
+            {
+                return;
+            }
+
+            function_->i32Constant(static_cast<int>(temporary));
+            generateCall(*call);
+            copyField(call->resolvedType);
+            function_->i32Constant(static_cast<int>(temporary));
+            return;
         }
-        function_->call(call->name);
+
+        generateCall(*call);
         return;
     }
 
@@ -480,13 +509,18 @@ void CodeGenerator::generateFieldLiteral(const FieldLiteralExpr &literal)
     }
 
     std::uint32_t address = 0;
-    if (!memory_.reserve(std::uint64_t(type.length) * FIELD_ELEMENT_BYTES, address))
+    if (!reserveField(type, address, "field literal"))
     {
-        addError("Field literal of length " + std::to_string(type.length) +
-                 " does not fit in memory");
         return;
     }
 
+    writeFieldLiteral(literal, address);
+    function_->i32Constant(static_cast<int>(address));
+}
+
+void CodeGenerator::writeFieldLiteral(const FieldLiteralExpr &literal, std::uint32_t address)
+{
+    const Type &type = literal.resolvedType;
     TypeKind elementKind = type.elementType->kind;
 
     for (std::size_t i = 0; i < literal.elements.size(); i++)
@@ -520,8 +554,158 @@ void CodeGenerator::generateFieldLiteral(const FieldLiteralExpr &literal)
             return;
         }
     }
+}
 
+bool CodeGenerator::reserveField(const Type &type, std::uint32_t &address, const std::string &context)
+{
+    if (!memory_.reserve(std::uint64_t(type.length) * FIELD_ELEMENT_BYTES, address))
+    {
+        addError("Field of length " + std::to_string(type.length) +
+                 " does not fit in memory (" + context + ")");
+        return false;
+    }
+    return true;
+}
+
+// memory.copy takes (destination, source, byte count)
+// reserveField has already checked the byte count fits in 32 bits
+void CodeGenerator::copyField(const Type &type)
+{
+    std::uint32_t bytes = type.length * FIELD_ELEMENT_BYTES;
+    function_->i32Constant(static_cast<int>(bytes));
+    function_->memoryCopy();
+}
+
+void CodeGenerator::generateFieldSource(const Expression &expression)
+{
+    if (const CallExpr *call = dynamic_cast<const CallExpr *>(&expression))
+    {
+        generateCall(*call);
+        return;
+    }
+
+    generateExpression(expression);
+}
+
+// let x = <field> gives x its own block and fills it:
+//   a literal is written straight into x's block
+//   anything else is copied in, so x never shares memory with another value
+void CodeGenerator::generateFieldLet(const LetStatement &statement)
+{
+    const Type &type = statement.resolvedType;
+
+    std::uint32_t address = 0;
+    if (!reserveField(type, address, "variable '" + statement.name + "'"))
+    {
+        return;
+    }
+
+    // the initializer is generated before x is declared, so in
+    // "let x = [...]" any x inside the brackets is still the outer one
+    if (const FieldLiteralExpr *literal =
+            dynamic_cast<const FieldLiteralExpr *>(statement.initializer.get()))
+    {
+        writeFieldLiteral(*literal, address);
+    }
+    else if (statement.initializer != nullptr)
+    {
+        function_->i32Constant(static_cast<int>(address));
+        generateFieldSource(*statement.initializer);
+        copyField(type);
+    }
+
+    // the local holds the block's address for the rest of its scope
+    std::string watName = declareLocal(statement.name, type);
     function_->i32Constant(static_cast<int>(address));
+    function_->localSet(watName);
+}
+
+// x = <field> overwrites the data in x's block; x keeps the same address
+// the new value is fully computed before the copy, and memory.copy handles
+// overlapping memory, so x = x and values computed from x are safe
+void CodeGenerator::generateFieldAssignment(const AssignmentStatement &assignment)
+{
+    function_->localGet(lookupLocal(assignment.name));
+    generateFieldSource(*assignment.value);
+    copyField(assignment.value->resolvedType);
+}
+
+// true if any statement in the block assigns to `name`
+// shadowing is ignored, so this may say yes when an inner variable of the same name
+// is assigned instead: that only costs an unneeded copy
+static bool assignsTo(const Statement &statement, const std::string &name)
+{
+    if (const AssignmentStatement *assignment = dynamic_cast<const AssignmentStatement *>(&statement))
+    {
+        return assignment->name == name;
+    }
+
+    if (const BlockStatement *block = dynamic_cast<const BlockStatement *>(&statement))
+    {
+        for (const std::unique_ptr<Statement> &inner : block->statements)
+        {
+            if (assignsTo(*inner, name))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (const IfStatement *ifStatement = dynamic_cast<const IfStatement *>(&statement))
+    {
+        return (ifStatement->thenBlock != nullptr && assignsTo(*ifStatement->thenBlock, name)) ||
+               (ifStatement->elseBranch != nullptr && assignsTo(*ifStatement->elseBranch, name));
+    }
+
+    if (const WhileStatement *whileStatement = dynamic_cast<const WhileStatement *>(&statement))
+    {
+        return whileStatement->body != nullptr && assignsTo(*whileStatement->body, name);
+    }
+
+    return false;
+}
+
+// a field parameter is the address of the caller's data
+// reading it is safe, but assigning to it would overwrite the caller's variable,
+// so a parameter the function assigns to is first copied into a block of its own
+void CodeGenerator::copyAssignedFieldParameters(const FunctionDecl &function)
+{
+    if (function.body == nullptr)
+    {
+        return;
+    }
+
+    for (const Parameter &parameter : function.parameters)
+    {
+        if (parameter.type.kind != TypeKind::Field || !assignsTo(*function.body, parameter.name))
+        {
+            continue;
+        }
+
+        std::uint32_t address = 0;
+        if (!reserveField(parameter.type, address, "parameter '" + parameter.name + "'"))
+        {
+            continue;
+        }
+
+        function_->i32Constant(static_cast<int>(address));
+        function_->localGet(parameter.name);
+        copyField(parameter.type);
+
+        function_->i32Constant(static_cast<int>(address));
+        function_->localSet(parameter.name);
+    }
+}
+
+void CodeGenerator::generateCall(const CallExpr &call)
+{
+    // arguments are pushed left to right, then the call consumes them
+    for (const std::unique_ptr<Expression> &argument : call.arguments)
+    {
+        generateExpression(*argument);
+    }
+    function_->call(call.name);
 }
 
 void CodeGenerator::generateUnary(const UnaryExpr &unary)

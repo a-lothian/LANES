@@ -126,6 +126,7 @@ void WatFunction::i32LoadFromMemory(unsigned offset) { emit(memarg("i32.load", o
 void WatFunction::i32StoreToMemory(unsigned offset) { emit(memarg("i32.store", offset)); }
 void WatFunction::f32LoadFromMemory(unsigned offset) { emit(memarg("f32.load", offset)); }
 void WatFunction::f32StoreToMemory(unsigned offset) { emit(memarg("f32.store", offset)); }
+void WatFunction::memoryCopy() { emit("memory.copy"); }
 
 
 void WatFunction::call(const std::string& functionName) { emit("call $" + functionName); }
