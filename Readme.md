@@ -16,7 +16,7 @@ The LANES compiler outputs WAT (WebAssembly Text) by default, and uses WAT2WASM 
 make install // installs wat2wasm via brew / apt-get
 ```
 
-The compiler can then be built, and the demo can be compiled. Once completed, open it in your browser to see LANES run.
+The compiler can then be built, and the demo can be compiled. Once completed, open it in your browser to see LANES run. **Note: Compiling the demo requires Node installed to package the WASM into the html file**
 
 ```
 make demo // builds compiler, then compiles demo. outputs 'demo/benchmarks.html'.
@@ -27,7 +27,6 @@ The compiler can also be built without compiling the demo:
 ```
 make // outputs to 'build/'
 ```
-
 
 The unit-test suite can be run with:
 
