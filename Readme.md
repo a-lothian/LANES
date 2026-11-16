@@ -26,23 +26,23 @@ make install // installs wat2wasm via brew / apt-get
 The compiler can then be built, and the demo can be compiled. Once completed, open it in your browser to see LANES run. **Note: Compiling the demo requires Node installed to package the WASM into the html file**
 
 ```
-make demo // builds compiler, then compiles demo. outputs 'demo/benchmarks.html'.
+make demo # builds compiler, then compiles demo. outputs 'demo/benchmarks.html'.
 ```
 
 The compiler can also be built without compiling the demo:
 
 ```
-make // outputs to 'build/'
+make # outputs to 'build/'
 ```
 
 The unit-test suite can be run with:
 
 ```
-make test // run all tests & print results
+make test # run all tests & print results
 ```
 All build artifacts can be removed with:
 ```
-make clean // remove all build artifacts
+make clean # remove all build artifacts
 ```
 ## Running the compiler
 
@@ -52,7 +52,7 @@ Once built, the compiler is at `build/lanes`. It takes one LANES source file:
 build/lanes <input file> [-t]
 ```
 
-By default the compiler writes a `.wasm` file next to the input, with the same name (`program.lanes` becomes `program.wasm`). This step uses WAT2WASM, so it must be installed. The `-t` flag writes the WAT instead (`program.wat`), and does not need WAT2WASM.
+By default the compiler writes a `.wasm` file next to the input, with the same name (`program.lanes` becomes `program.wasm`). This step uses WAT2WASM, so it must be installed. The `-t` flag writes human readable WAT instead (`program.wat`), and does not need WAT2WASM.
 
 If the program has errors, they are printed and no output is written.
 
