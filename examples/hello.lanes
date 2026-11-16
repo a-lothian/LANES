@@ -1,0 +1,28 @@
+// variables, arithmetic and printing
+//
+// run with: make run examples/hello.lanes
+
+function main() -> integer {
+    // the type of a variable is inferred from its value...
+    let apples = 12;
+    let price = 0.75;
+
+    // ...or can be written out
+    let paid: bool = false;
+
+    print(apples);
+    print(price);
+    print(paid);
+
+    // integers and floats don't mix: convert one with to_f32 or to_i32
+    let total = to_f32(apples) * price;
+    print(total);
+
+    // variables can be reassigned, as long as the type stays the same
+    apples = apples - 5;
+    print(apples);
+
+    // the usual precedence applies: this is 2 + (3 * 4)
+    print(2 + 3 * 4);
+    return 0;
+}

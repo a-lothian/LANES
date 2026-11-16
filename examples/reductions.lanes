@@ -1,0 +1,39 @@
+// reductions: turning a field into a single value
+//
+// a ruleset that returns one value (rather than a field) must use a reduction:
+// sum, min_of, max_of, any or all
+//
+// run with: make run examples/reductions.lanes
+
+ruleset average(x: field<f32, 6>) -> f32 {
+    return sum(x) / to_f32(length(x));
+}
+
+ruleset range(x: field<f32, 6>) -> f32 {
+    return max_of(x) - min_of(x);
+}
+
+// any and all work on bool fields, such as the result of a comparison
+ruleset any_below(x: field<f32, 6>, limit: f32) -> bool {
+    return any(x < limit);
+}
+
+ruleset all_below(x: field<f32, 6>, limit: f32) -> bool {
+    return all(x < limit);
+}
+
+// how many values are above the average: a ruleset can call another ruleset
+ruleset count_above_average(x: field<f32, 6>) -> integer {
+    return sum(select(x > average(x), 1, 0));
+}
+
+function main() -> integer {
+    let temperatures = [18.5, 21.0, 25.5, 19.0, 30.0, 22.0];
+
+    print(average(temperatures));
+    print(range(temperatures));
+    print(any_below(temperatures, 20.0));
+    print(all_below(temperatures, 20.0));
+    print(count_above_average(temperatures));
+    return 0;
+}

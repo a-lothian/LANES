@@ -1,0 +1,33 @@
+// a program with mistakes, to show the compiler's checks
+//
+// this file does not compile. the compiler lists every error it finds, and
+// writes no output
+//
+// run with: make run examples/errors.lanes
+
+ruleset double(x: field<f32, 4>) -> field<f32, 4> {
+    // rulesets are compiled into a single loop, so they cannot contain if statements
+    if true {
+        return x;
+    }
+    return x * 2.0;
+}
+
+function half(n: integer) -> float {
+    // n is an integer and 2.0 is a float, so they cannot be divided
+    return n / 2.0;
+}
+
+function main() -> integer {
+    let count = 10;
+
+    // count is an integer, so it cannot be given a bool
+    count = true;
+
+    // total has not been declared
+    print(total);
+
+    // half takes one argument
+    print(half(1, 2));
+    return 0;
+}

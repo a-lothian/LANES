@@ -1,0 +1,41 @@
+// fields and rulesets
+//
+// a field holds a fixed number of integers, floats or bools. maths on fields is
+// written inside a ruleset, which the compiler turns into a SIMD loop that works
+// on 4 values per instruction
+//
+// run with: make run examples/fields.lanes
+
+// every operation applies to each value: this scales and shifts all 8 at once.
+// k and offset are single values, so they are used for every element
+ruleset scale(x: field<f32, 8>, k: f32, offset: f32) -> field<f32, 8> {
+    return x * k + offset;
+}
+
+// statements in a ruleset also work on whole fields
+ruleset distance(x: field<f32, 8>, y: field<f32, 8>) -> field<f32, 8> {
+    let squared = x * x + y * y;
+    return sqrt(squared);
+}
+
+// rulesets have no if statements, so select(mask, a, b) picks a or b for each value
+ruleset absolute(x: field<f32, 8>) -> field<f32, 8> {
+    return select(x < 0.0, -x, x);
+}
+
+function main() -> integer {
+    // a field literal: its type here is field<f32, 8>
+    let values = [1.0, -2.0, 3.0, -4.0, 5.0, -6.0, 7.0, -8.0];
+    print(values);
+
+    print(scale(values, 2.0, 1.0));
+    print(distance([3.0, 5.0, 8.0, 0.0, 1.0, 6.0, 9.0, 2.0],
+                   [4.0, 12.0, 15.0, 1.0, 0.0, 8.0, 12.0, 0.0]));
+    print(absolute(values));
+
+    // fields are values: a copy is not affected by later changes to the original
+    let copy = values;
+    values = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+    print(copy);
+    return 0;
+}
