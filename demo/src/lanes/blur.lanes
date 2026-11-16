@@ -1,0 +1,20 @@
+// 3 x 3 Gaussian blur of one colour channel:
+//
+//     1 2 1
+//     2 4 2   / 16
+//     1 2 1
+//
+// a ruleset can't read neighbouring elements, so the page passes the channel
+// nine times, each shifted towards one neighbour. the channel has a one pixel
+// border (1026 x 1026) that the page refills from the edge pixels each pass
+
+ruleset blur(nw: field<f32, 1052676>, n: field<f32, 1052676>, ne: field<f32, 1052676>,
+             w: field<f32, 1052676>, c: field<f32, 1052676>, e: field<f32, 1052676>,
+             sw: field<f32, 1052676>, s: field<f32, 1052676>, se: field<f32, 1052676>) -> field<f32, 1052676> {
+    return (c * 4.0 + (n + s + e + w) * 2.0 + (nw + ne + sw + se)) * 0.0625;
+}
+
+// required by every program
+function main() -> integer {
+    return 0;
+}

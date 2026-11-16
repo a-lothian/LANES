@@ -1,0 +1,1524 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LANES Benchmarks</title>
+<style>
+    body {
+        margin: 8px;
+        font-family: sans-serif;
+    }
+    main {
+        margin: 0 20%;
+    }
+    code, pre, .mono {
+        font-family: monospace;
+    }
+    section {
+        margin-top: 24px;
+        border-top: 1px solid #ccc;
+    }
+    .panels {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+    @media (max-width: 700px) {
+        main {
+            margin: 0;
+        }
+        .panels {
+            grid-template-columns: 1fr;
+        }
+    }
+    .panel h3 {
+        margin: 0 0 4px;
+        padding: 4px 6px;
+        font-size: 1em;
+        font-weight: normal;
+        background: #eee;
+        border-top: 1px solid #ccc;
+        border-bottom: 1px solid #ccc;
+    }
+    canvas {
+        display: block;
+        width: 100%;
+        aspect-ratio: 1;
+        background: #000;
+        image-rendering: pixelated;
+    }
+    canvas.chart {
+        image-rendering: auto;
+    }
+    .panel-footer, .section-footer {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-top: 4px;
+    }
+    .status {
+        flex: 1;
+        min-width: 0;
+    }
+    .bar {
+        height: 3px;
+        margin-top: 4px;
+        background: #eee;
+    }
+    .bar > div {
+        width: 0;
+        height: 100%;
+        background: #888;
+    }
+    .verdict {
+        flex: 1;
+        min-width: 200px;
+    }
+    .extra {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .verdict .good {
+        color: green;
+    }
+    .verdict .tick {
+        cursor: help;
+    }
+    .verdict .bad, #error {
+        color: red;
+    }
+    details {
+        margin-top: 8px;
+    }
+    pre {
+        margin: 4px 0 0;
+        padding: 6px;
+        overflow-x: auto;
+        border: 1px solid #ccc;
+    }
+    #error {
+        display: none;
+        white-space: pre-line;
+    }
+</style>
+</head>
+<body>
+<main>
+    <h1>LANES vs JavaScript</h1>
+    <p>
+        This page contains six programs compiled with the LANES compiler to WebAssembly
+        (WASM). Each has a JavaScript counterpart to compare performance against with
+        identical inputs. This demonstration showcases the general nature of the LANES
+        language and its flexibility in web usage.
+    </p>
+    <p>
+        For best comparison, use a browser supporting WASM SIMD:
+        <a href="https://caniuse.com/wasm-simd">https://caniuse.com/wasm-simd</a>
+    </p>
+    <div id="error"></div>
+    <div id="demos"></div>
+</main>
+
+<template id="section-template">
+    <section>
+        <h2 class="title"></h2>
+        <p class="description"></p>
+        <div class="panels">
+            <div class="panel lanes">
+                <h3>LANES SIMD</h3>
+                <canvas></canvas>
+                <div class="bar"><div></div></div>
+                <div class="panel-footer">
+                    <span class="status mono">not run yet</span>
+                    <button type="button" class="run">Run</button>
+                </div>
+            </div>
+            <div class="panel javascript">
+                <h3>JavaScript</h3>
+                <canvas></canvas>
+                <div class="bar"><div></div></div>
+                <div class="panel-footer">
+                    <span class="status mono">not run yet</span>
+                    <button type="button" class="run">Run</button>
+                </div>
+            </div>
+        </div>
+        <div class="section-footer">
+            <span class="verdict"></span>
+            <span class="extra"></span>
+            <button type="button" class="run-both">Run both</button>
+        </div>
+        <details>
+            <summary>LANES source</summary>
+            <pre class="source"></pre>
+        </details>
+    </section>
+</template>
+
+<script>
+// side-by-side benchmarks for the LANES programs in demo/src/lanes: blur, reaction,
+// boids, voronoi, matmul and regression
+//
+// this file is a template: `make demo` compiles the programs and writes
+// demo/benchmarks.html, a copy of this page with the compiled programs and their
+// sources embedded below. the page then needs no server, since nothing is fetched
+//
+// LANES has no way to read a neighbouring element of a field, but a field is passed
+// by address. every grid below is stored row by row with spare rows before and
+// after it, and each ruleset is passed the grid several times, shifted towards each
+// neighbour (address - 4 is the field moved one cell right, and so on). the outer
+// ring of cells is held fixed by a mask, so the shifted reads off the edges never
+// matter. the JavaScript versions do the same work with ordinary loops
+//
+// This build process and these demonstrations were made with assistance of AI.
+
+// replaced by tools/embed_wasm.mjs with the base64 of each .wasm and the text of each .lanes
+const EMBEDDED = "__LANES_PROGRAMS__";
+
+const PAGE_SIZE = 65536;
+
+// ---------------------------------------------------------------- shared helpers
+
+// a small seeded random number generator, so both sides start from the same input
+function random(seed) {
+    return function () {
+        seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+// each program is compiled once and reused, so the browser's optimised machine code
+// for it (which it builds while the program runs) carries over from run to run
+const modules = new Map();
+
+async function instantiate(name) {
+    if (!modules.has(name)) {
+        const bytes = Uint8Array.from(atob(EMBEDDED[name + ".wasm"]), (character) => character.charCodeAt(0));
+        modules.set(name, await WebAssembly.compile(bytes));
+    }
+    // a fresh instance gets fresh memory. none of the programs print, so there
+    // are no host functions to provide
+    const instance = await WebAssembly.instantiate(modules.get(name), { env: {} });
+    return instance.exports;
+}
+
+// places grids in new memory after the compiler's own fields (the ruleset result
+// blocks start at address 0). each grid gets `margin` spare cells before and after
+// it, so the shifted copies stay inside memory the page owns. all the memory is
+// added at once, since growing it replaces memory.buffer and the views made before
+function allocate(program, grids) {
+    const memory = program.memory;
+    let end = Math.ceil(memory.buffer.byteLength / 16) * 16;
+    const addresses = grids.map(({ cells, margin }) => {
+        const address = end + margin * 4;
+        end = address + (cells + margin) * 4;
+        end = Math.ceil(end / 16) * 16;
+        return address;
+    });
+    memory.grow(Math.ceil((end - memory.buffer.byteLength) / PAGE_SIZE));
+
+    const results = new Map();
+    return {
+        grids: grids.map(({ type, cells }, index) => ({
+            address: addresses[index],
+            values: new type(memory.buffer, addresses[index], cells),
+        })),
+        // a ruleset returns the address of its result block, which the next call to
+        // the same ruleset overwrites, so results are copied out straight away
+        copy(target, address) {
+            let view = results.get(address);
+            if (view === undefined) {
+                view = new target.values.constructor(memory.buffer, address, target.values.length);
+                results.set(address, view);
+            }
+            target.values.set(view);
+        },
+    };
+}
+
+// the byte offsets of a cell's eight neighbours in a grid `width` cells wide
+function neighbourOffsets(width) {
+    const row = width * 4;
+    return {
+        nw: -row - 4, n: -row, ne: -row + 4,
+        w: -4, e: 4,
+        sw: row - 4, s: row, se: row + 4,
+    };
+}
+
+// 1 inside the grid and 0 on the outer ring of cells
+function interiorMask(type, width, height) {
+    const mask = new type(width * height);
+    for (let y = 1; y < height - 1; y++) {
+        mask.fill(1, y * width + 1, y * width + width - 1);
+    }
+    return mask;
+}
+
+// used by the Voronoi diagram
+function drawPackedPixels(image, pixels) {
+    // the packed colours are already in the canvas's byte order
+    new Uint32Array(image.data.buffer).set(new Uint32Array(pixels.buffer, pixels.byteOffset, pixels.length));
+}
+
+// how many pixels differ by more than 2 colour levels in red, green or blue
+function differentPixels(lanes, javascript) {
+    let different = 0;
+    for (let i = 0; i < lanes.length; i++) {
+        for (let shift = 0; shift < 24; shift += 8) {
+            if (Math.abs(((lanes[i] >>> shift) & 255) - ((javascript[i] >>> shift) & 255)) > 2) {
+                different++;
+                break;
+            }
+        }
+    }
+    return different;
+}
+
+// ---------------------------------------------------------------- image blur
+
+const BLUR_SIZE = 1024;          // the picture is BLUR_SIZE x BLUR_SIZE pixels
+const BLUR_PASSES = 200;
+// each channel is stored with a border one pixel wide all round it, so the edge
+// pixels have neighbours too. must match the field length in blur.lanes (1026 * 1026)
+const BLUR_WIDTH = BLUR_SIZE + 2;
+
+// the image to blur as three channels of 0 to 255. a generated test card by
+// default, or a picture chosen with the button, cropped to a square
+let blurSource = null;
+
+// the channels with their borders filled in
+function blurChannels(imageData) {
+    const cellCount = BLUR_WIDTH * BLUR_WIDTH;
+    const channels = [new Float32Array(cellCount), new Float32Array(cellCount), new Float32Array(cellCount)];
+    for (let y = 0; y < BLUR_SIZE; y++) {
+        for (let x = 0; x < BLUR_SIZE; x++) {
+            const pixel = (y * BLUR_SIZE + x) * 4;
+            const cell = (y + 1) * BLUR_WIDTH + x + 1;
+            for (let k = 0; k < 3; k++) {
+                channels[k][cell] = imageData.data[pixel + k];
+            }
+        }
+    }
+    channels.forEach(fillBorder);
+    return channels;
+}
+
+// copies the picture's edge pixels out into the border round it, as if the
+// picture carried on past its edges in the same colours. the top and bottom rows
+// are done first, so the corners then take the colour of the corner pixels
+function fillBorder(channel) {
+    const width = BLUR_WIDTH, last = BLUR_WIDTH - 1;
+    channel.copyWithin(1, width + 1, width + last);
+    channel.copyWithin(last * width + 1, (last - 1) * width + 1, (last - 1) * width + last);
+    for (let y = 0; y < width; y++) {
+        channel[y * width] = channel[y * width + 1];
+        channel[y * width + last] = channel[y * width + last - 1];
+    }
+}
+
+function testCard() {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = BLUR_SIZE;
+    const context = canvas.getContext("2d");
+    const size = BLUR_SIZE;
+
+    const background = context.createLinearGradient(0, 0, size, size);
+    background.addColorStop(0, "#14365c");
+    background.addColorStop(1, "#7a2e5c");
+    context.fillStyle = background;
+    context.fillRect(0, 0, size, size);
+
+    // fine stripes and a checkerboard, which blur away quickly
+    for (let x = 0; x < size / 2; x += 4) {
+        context.fillStyle = "#e8f1ff";
+        context.fillRect(x, 0, 2, size / 4);
+    }
+    for (let y = 0; y < 16; y++) {
+        for (let x = 0; x < 16; x++) {
+            if ((x + y) % 2 === 0) {
+                context.fillStyle = "#ffd166";
+                context.fillRect(size / 2 + x * 16, y * 8, 16, 8);
+            }
+        }
+    }
+
+    const colours = ["#ef476f", "#06d6a0", "#118ab2", "#ffd166"];
+    colours.forEach((colour, index) => {
+        context.fillStyle = colour;
+        context.beginPath();
+        context.arc(size * (0.2 + index * 0.2), size * 0.78, size * 0.08, 0, Math.PI * 2);
+        context.fill();
+    });
+
+    context.fillStyle = "#ffffff";
+    context.font = `bold ${size * 0.22}px system-ui, sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText("LANES", size / 2, size * 0.47);
+
+    return context.getImageData(0, 0, size, size);
+}
+
+// a button to blur a picture of your own instead of the test card
+function pictureControls({ addControl, reset }) {
+    addControl(fileButton("Choose a picture…", "image/*", async (file) => {
+        blurSource = await loadPicture(file);
+        reset();
+    }));
+}
+
+async function loadPicture(file) {
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = BLUR_SIZE;
+    const context = canvas.getContext("2d");
+    // crop the middle square, so the picture is not stretched
+    const side = Math.min(bitmap.width, bitmap.height);
+    context.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side,
+        0, 0, BLUR_SIZE, BLUR_SIZE);
+    return context.getImageData(0, 0, BLUR_SIZE, BLUR_SIZE);
+}
+
+async function blurLanes() {
+    const program = await instantiate("blur");
+    // the border cells' own shifted reads run off the grid, into the margin
+    const grid = { type: Float32Array, cells: BLUR_WIDTH * BLUR_WIDTH, margin: BLUR_WIDTH + 4 };
+    const memory = allocate(program, [grid, grid, grid]);
+    const [red, green, blue] = memory.grids;
+    const start = blurChannels(blurSource);
+    red.values.set(start[0]);
+    green.values.set(start[1]);
+    blue.values.set(start[2]);
+
+    const o = neighbourOffsets(BLUR_WIDTH);
+    return {
+        step() {
+            for (const channel of [red, green, blue]) {
+                const c = channel.address;
+                memory.copy(channel, program.blur(c + o.nw, c + o.n, c + o.ne, c + o.w, c, c + o.e,
+                    c + o.sw, c + o.s, c + o.se));
+                // the ruleset blurs the border too, which is then put right
+                fillBorder(channel.values);
+            }
+        },
+        channels: () => [red.values, green.values, blue.values],
+    };
+}
+
+function blurJavaScript() {
+    const width = BLUR_WIDTH;
+    let channels = blurChannels(blurSource);
+    let next = channels.map((channel) => channel.slice());
+    return {
+        step() {
+            for (let k = 0; k < 3; k++) {
+                const c = channels[k], out = next[k];
+                // every pixel of the picture, but not the border
+                for (let y = 1; y < width - 1; y++) {
+                    for (let x = 1; x < width - 1; x++) {
+                        const i = y * width + x;
+                        out[i] = (c[i] * 4 +
+                            (c[i - width] + c[i + width] + c[i + 1] + c[i - 1]) * 2 +
+                            (c[i - width - 1] + c[i - width + 1] + c[i + width - 1] + c[i + width + 1])) * 0.0625;
+                    }
+                }
+                fillBorder(out);
+            }
+            [channels, next] = [next, channels];
+        },
+        channels: () => channels,
+    };
+}
+
+// draws the picture, leaving out the border
+function drawBlur(image, [red, green, blue]) {
+    const data = image.data;
+    for (let y = 0; y < BLUR_SIZE; y++) {
+        for (let x = 0; x < BLUR_SIZE; x++) {
+            const pixel = (y * BLUR_SIZE + x) * 4;
+            const cell = (y + 1) * BLUR_WIDTH + x + 1;
+            data[pixel] = red[cell];
+            data[pixel + 1] = green[cell];
+            data[pixel + 2] = blue[cell];
+            data[pixel + 3] = 255;
+        }
+    }
+}
+
+function compareFloats(lanes, javascript) {
+    let worst = 0;
+    for (let k = 0; k < lanes.length; k++) {
+        for (let i = 0; i < lanes[k].length; i++) {
+            worst = Math.max(worst, Math.abs(lanes[k][i] - javascript[k][i]));
+        }
+    }
+    return worst;
+}
+
+function compareBlur(lanes, javascript) {
+    const worst = compareFloats(lanes, javascript);
+    // a colour level is 1 out of 255, so anything under half a level looks the same
+    return {
+        agree: worst < 0.5,
+        text: `largest difference ${worst.toPrecision(2)} colour levels (out of 255)`,
+    };
+}
+
+// ---------------------------------------------------------------- reaction-diffusion
+
+const REACTION_SIZE = 256;       // must match the field length in reaction.lanes (256 * 256)
+const REACTION_STEPS = 10000;
+const FEED = 0.055;
+const KILL = 0.062;
+
+function reactionStart() {
+    const cellCount = REACTION_SIZE * REACTION_SIZE;
+    const a = new Float32Array(cellCount).fill(1);
+    const b = new Float32Array(cellCount);
+    // a few square drops of b to start the reaction
+    const next = random(7);
+    for (let drop = 0; drop < 12; drop++) {
+        const cx = 20 + Math.floor(next() * (REACTION_SIZE - 40));
+        const cy = 20 + Math.floor(next() * (REACTION_SIZE - 40));
+        for (let y = cy - 4; y < cy + 4; y++) {
+            for (let x = cx - 4; x < cx + 4; x++) {
+                b[y * REACTION_SIZE + x] = 1;
+            }
+        }
+    }
+    return [a, b];
+}
+
+async function reactionLanes() {
+    const program = await instantiate("reaction");
+    const cellCount = REACTION_SIZE * REACTION_SIZE;
+    const grid = { type: Float32Array, cells: cellCount, margin: REACTION_SIZE + 4 };
+    const memory = allocate(program, [grid, grid, { type: Float32Array, cells: cellCount, margin: 0 }]);
+    const [a, b, mask] = memory.grids;
+    const [startA, startB] = reactionStart();
+    a.values.set(startA);
+    b.values.set(startB);
+    mask.values.set(interiorMask(Float32Array, REACTION_SIZE, REACTION_SIZE));
+
+    const o = neighbourOffsets(REACTION_SIZE);
+    const ca = a.address, cb = b.address;
+    return {
+        step() {
+            // both rulesets read the old a and b, so both results are copied afterwards
+            const nextA = program.react_a(ca, ca + o.n, ca + o.s, ca + o.e, ca + o.w,
+                ca + o.nw, ca + o.ne, ca + o.sw, ca + o.se, cb, mask.address, FEED);
+            const nextB = program.react_b(cb, cb + o.n, cb + o.s, cb + o.e, cb + o.w,
+                cb + o.nw, cb + o.ne, cb + o.sw, cb + o.se, ca, mask.address, FEED, KILL);
+            memory.copy(a, nextA);
+            memory.copy(b, nextB);
+        },
+        chemicals: () => [a.values, b.values],
+    };
+}
+
+function reactionJavaScript() {
+    const width = REACTION_SIZE;
+    let [a, b] = reactionStart();
+    // the edge cells never change, so the second buffers start as copies
+    let nextA = a.slice(), nextB = b.slice();
+    return {
+        step() {
+            for (let y = 1; y < width - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                    const i = y * width + x;
+                    const av = a[i], bv = b[i];
+                    const laplacianA = (a[i - width] + a[i + width] + a[i + 1] + a[i - 1]) * 0.2 +
+                        (a[i - width - 1] + a[i - width + 1] + a[i + width - 1] + a[i + width + 1]) * 0.05 - av;
+                    const laplacianB = (b[i - width] + b[i + width] + b[i + 1] + b[i - 1]) * 0.2 +
+                        (b[i - width - 1] + b[i - width + 1] + b[i + width - 1] + b[i + width + 1]) * 0.05 - bv;
+                    const reaction = av * bv * bv;
+                    nextA[i] = av + laplacianA - reaction + (1 - av) * FEED;
+                    nextB[i] = bv + laplacianB * 0.5 + reaction - bv * (FEED + KILL);
+                }
+            }
+            [a, nextA] = [nextA, a];
+            [b, nextB] = [nextB, b];
+        },
+        chemicals: () => [a, b],
+    };
+}
+
+function drawReaction(image, [a, b]) {
+    const data = image.data;
+    for (let i = 0; i < a.length; i++) {
+        // dark where b has taken over, light where a remains
+        const value = Math.min(1, Math.max(0, a[i] - b[i]));
+        data[i * 4] = 10 + 230 * value * value;
+        data[i * 4 + 1] = 20 + 200 * value;
+        data[i * 4 + 2] = 60 + 180 * Math.sqrt(value);
+        data[i * 4 + 3] = 255;
+    }
+}
+
+function compareReaction(lanes, javascript) {
+    const worst = compareFloats(lanes, javascript);
+    return {
+        agree: worst < 0.05,
+        text: `largest difference ${worst.toPrecision(2)} in concentration (0 to 1)`,
+    };
+}
+
+// ---------------------------------------------------------------- polynomial regression
+
+const REGRESSION_POINTS = 1048576;   // must match the field length in regression.lanes
+const REGRESSION_EPOCHS = 2000;
+const DEGREE = 7;                    // must match the c0..c7 in regression.lanes
+const LEARNING_RATE = 2.5;
+// how much of each step carries on into the next (momentum). high powers of x
+// look alike between -1 and 1, so plain gradient descent tells their
+// coefficients apart very slowly; momentum builds up speed along those directions
+const MOMENTUM = 0.985;
+// the curve the points are sampled from, which training should rediscover:
+// c0 to c7, a curve with six turns between -1 and 1
+const TRUE_COEFFICIENTS = [0.1, -0.7, -1.1, 8.4, 3.9, -22.0, -3.0, 15.0];
+const NOISE = 0.15;
+// how many of the points are drawn (drawing all of them would hide the curve)
+const PLOTTED_POINTS = 8000;
+
+// the value of the polynomial with coefficients c0, c1, ... at x (Horner's form)
+function polynomial(coefficients, x) {
+    let y = 0;
+    for (let k = coefficients.length - 1; k >= 0; k--) {
+        y = y * x + coefficients[k];
+    }
+    return y;
+}
+
+// noisy points along the true curve, with x between -1 and 1. made once and
+// shared by both sides
+let regressionData = null;
+
+function regressionPoints() {
+    if (regressionData === null) {
+        const next = random(3);
+        const xs = new Float32Array(REGRESSION_POINTS);
+        const ys = new Float32Array(REGRESSION_POINTS);
+        for (let i = 0; i < REGRESSION_POINTS; i++) {
+            const x = next() * 2 - 1;
+            // normally distributed noise (the Box-Muller transform)
+            const noise = Math.sqrt(-2 * Math.log(1 - next())) * Math.cos(2 * Math.PI * next()) * NOISE;
+            xs[i] = x;
+            ys[i] = polynomial(TRUE_COEFFICIENTS, x) + noise;
+        }
+        regressionData = { xs, ys };
+    }
+    return regressionData;
+}
+
+// what both sides share: the coefficients, and gradient descent with momentum.
+// `gradients(coefficients)` returns the mean of the error times x^k for each k,
+// and `loss(coefficients)` the mean squared error
+function regressionRun(gradients, loss) {
+    const coefficients = new Array(DEGREE + 1).fill(0);
+    const velocity = new Array(DEGREE + 1).fill(0);
+    let epoch = 0;
+    return {
+        step() {
+            const gradient = gradients(coefficients);
+            for (let k = 0; k <= DEGREE; k++) {
+                velocity[k] = MOMENTUM * velocity[k] - LEARNING_RATE * gradient[k];
+                coefficients[k] += velocity[k];
+            }
+            epoch++;
+        },
+        model: () => ({ coefficients: coefficients.slice(), epoch, loss: loss(coefficients) }),
+    };
+}
+
+async function regressionLanes() {
+    const program = await instantiate("regression");
+    const memory = allocate(program, [
+        { type: Float32Array, cells: REGRESSION_POINTS, margin: 0 },
+        { type: Float32Array, cells: REGRESSION_POINTS, margin: 0 },
+    ]);
+    const [x, y] = memory.grids;
+    const data = regressionPoints();
+    x.values.set(data.xs);
+    y.values.set(data.ys);
+    return regressionRun(
+        (coefficients) => {
+            // the error field stays in the ruleset's result block, and the gradient
+            // rulesets read it from there, so nothing is copied
+            const error = program.error(x.address, y.address, ...coefficients);
+            return [
+                program.gradient_0(error),
+                program.gradient_1(error, x.address),
+                program.gradient_2(error, x.address),
+                program.gradient_3(error, x.address),
+                program.gradient_4(error, x.address),
+                program.gradient_5(error, x.address),
+                program.gradient_6(error, x.address),
+                program.gradient_7(error, x.address),
+            ];
+        },
+        (coefficients) => program.loss(program.error(x.address, y.address, ...coefficients)),
+    );
+}
+
+function regressionJavaScript() {
+    const { xs, ys } = regressionPoints();
+    const count = xs.length;
+    return regressionRun(
+        ([c0, c1, c2, c3, c4, c5, c6, c7]) => {
+            // one loop works out all eight gradient sums together, building up
+            // the powers of x as it goes
+            let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0, s6 = 0, s7 = 0;
+            for (let i = 0; i < count; i++) {
+                const x = xs[i];
+                const error = c0 + x * (c1 + x * (c2 + x * (c3 + x * (c4 + x * (c5 + x * (c6 + x * c7)))))) - ys[i];
+                let power = error;
+                s0 += power;
+                power *= x; s1 += power;
+                power *= x; s2 += power;
+                power *= x; s3 += power;
+                power *= x; s4 += power;
+                power *= x; s5 += power;
+                power *= x; s6 += power;
+                power *= x; s7 += power;
+            }
+            return [s0, s1, s2, s3, s4, s5, s6, s7].map((total) => total / count);
+        },
+        (coefficients) => {
+            let total = 0;
+            for (let i = 0; i < count; i++) {
+                const error = polynomial(coefficients, xs[i]) - ys[i];
+                total += error * error;
+            }
+            return total / count;
+        },
+    );
+}
+
+// a scatter plot of some of the points, the true curve (dashed) and the curve
+// found so far, with the epoch and loss above it
+function drawRegression(context, model, engine) {
+    const size = context.canvas.width;
+    const { xs, ys } = regressionPoints();
+    const yMin = -1.3, yMax = 1.1;
+    const left = 0.03 * size, right = 0.97 * size, top = 0.1 * size, bottom = 0.97 * size;
+    const toX = (x) => left + ((x + 1) / 2) * (right - left);
+    const toY = (y) => bottom - ((y - yMin) / (yMax - yMin)) * (bottom - top);
+    const colour = engine === "lanes" ? "#1a66cc" : "#c77700";
+    const font = `${size * 0.03}px monospace`;
+    // line widths and dashes were chosen for a 600 pixel canvas
+    const px = size / 600;
+
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, size, size);
+
+    // each point is one sharp pixel (a whole number of screen pixels across, on
+    // whole pixel boundaries, so it is never smeared over its neighbours)
+    const dot = Math.max(1, Math.round(devicePixelRatio));
+    context.fillStyle = "#999";
+    for (let i = 0; i < PLOTTED_POINTS; i++) {
+        context.fillRect(Math.round(toX(xs[i])), Math.round(toY(ys[i])), dot, dot);
+    }
+
+    const curve = (coefficients) => {
+        context.beginPath();
+        for (let step = 0; step <= 400; step++) {
+            const x = -1 + step / 200;
+            const y = Math.min(Math.max(polynomial(coefficients, x), yMin - 1), yMax + 1);
+            if (step === 0) context.moveTo(toX(x), toY(y));
+            else context.lineTo(toX(x), toY(y));
+        }
+        context.stroke();
+    };
+    context.save();
+    context.beginPath();
+    context.rect(0, top, size, bottom - top);
+    context.clip();
+    context.setLineDash([6 * px, 6 * px]);
+    context.strokeStyle = "#000";
+    context.lineWidth = 1.5 * px;
+    curve(TRUE_COEFFICIENTS);
+    context.setLineDash([]);
+    context.strokeStyle = colour;
+    context.lineWidth = 3 * px;
+    curve(model.coefficients);
+    context.restore();
+
+    // the epoch and loss on the left, and a key to the two lines on the right
+    const textY = size * 0.05;
+    context.font = font;
+    context.textBaseline = "middle";
+    context.fillStyle = "#000";
+    context.fillText(`epoch ${model.epoch} / ${REGRESSION_EPOCHS}   loss ${model.loss.toFixed(4)}`, left, textY);
+    const keyX = right - size * 0.33;
+    context.strokeStyle = colour;
+    context.lineWidth = 3 * px;
+    context.beginPath();
+    context.moveTo(keyX, textY);
+    context.lineTo(keyX + size * 0.04, textY);
+    context.stroke();
+    context.fillText("fit", keyX + size * 0.055, textY);
+    context.setLineDash([4 * px, 4 * px]);
+    context.strokeStyle = "#000";
+    context.lineWidth = 1.5 * px;
+    context.beginPath();
+    context.moveTo(keyX + size * 0.14, textY);
+    context.lineTo(keyX + size * 0.18, textY);
+    context.stroke();
+    context.setLineDash([]);
+    context.fillText("true", keyX + size * 0.195, textY);
+    context.textBaseline = "alphabetic";
+}
+
+function compareRegression(lanes, javascript) {
+    const worst = Math.max(...lanes.coefficients.map((value, k) => Math.abs(value - javascript.coefficients[k])));
+    return {
+        agree: worst < 1e-3,
+        text: `fitted coefficients agree to within ${worst.toPrecision(1)}`,
+    };
+}
+
+// ---------------------------------------------------------------- boids
+
+const BOIDS = 2048;              // must match the field length in boids.lanes
+const BOIDS_PER_CALL = 8;        // must match the number of a, b, v triples in steer
+const BOID_STEPS = 500;
+const BOID_DT = 1 / 60;
+
+// birds scattered over the sky (0 to 1 each way), each flying a random way
+function flockStart() {
+    const next = random(7);
+    const x = new Float32Array(BOIDS), y = new Float32Array(BOIDS);
+    const vx = new Float32Array(BOIDS), vy = new Float32Array(BOIDS);
+    for (let i = 0; i < BOIDS; i++) {
+        x[i] = next();
+        y[i] = next();
+        const angle = next() * Math.PI * 2;
+        vx[i] = 0.2 * Math.cos(angle);
+        vy[i] = 0.2 * Math.sin(angle);
+    }
+    return { x, y, vx, vy };
+}
+
+// the same rules as boids.lanes in plain JavaScript. only birds within 0.05 of
+// each other affect each other, and that is about 1 pair in 100, so the inner
+// loop skips the rest with an if. SIMD works on four birds at once, so the LANES
+// version cannot skip a pair unless all four can
+function boidsStep({ x, y, vx, vy }, ax, ay) {
+    for (let i = 0; i < BOIDS; i++) {
+        const xi = x[i], yi = y[i], vxi = vx[i], vyi = vy[i];
+        let sumX = 0, sumY = 0;
+        for (let j = 0; j < BOIDS; j++) {
+            const dx = x[j] - xi, dy = y[j] - yi;
+            const d = dx * dx + dy * dy;
+            if (d >= 0.0025) continue;
+            const weight = 1 - d * 400;
+            const spacing = 1 - 0.002 / (d + 0.0001);
+            sumX += weight * (dx * spacing + (vx[j] - vxi) * 1.5);
+            sumY += weight * (dy * spacing + (vy[j] - vyi) * 1.5);
+        }
+        ax[i] = sumX;
+        ay[i] = sumY;
+    }
+    for (let i = 0; i < BOIDS; i++) {
+        const nx = vx[i] + ax[i] * BOID_DT, ny = vy[i] + ay[i] * BOID_DT;
+        const speed = Math.sqrt(nx * nx + ny * ny) + 0.000001;
+        const scale = Math.min(Math.max(speed, 0.1), 0.3) / speed;
+        vx[i] = nx * scale;
+        vy[i] = ny * scale;
+        const px = x[i] + vx[i] * BOID_DT, py = y[i] + vy[i] * BOID_DT;
+        x[i] = px - Math.floor(px);
+        y[i] = py - Math.floor(py);
+    }
+}
+
+async function boidsLanes() {
+    const program = await instantiate("boids");
+    const field = { type: Float32Array, cells: BOIDS, margin: 0 };
+    const memory = allocate(program, [field, field, field, field, field, field, field]);
+    // `zero` stays all zeros: the steering before any other bird is counted
+    const [x, y, vx, vy, ax, zero, newVx] = memory.grids;
+    const start = flockStart();
+    x.values.set(start.x);
+    y.values.set(start.y);
+    vx.values.set(start.vx);
+    vy.values.set(start.vy);
+    const result = (address) => new Float32Array(program.memory.buffer, address, BOIDS);
+
+    // the steering along axis `a` from every other bird, 8 at a time, built up
+    // in steer's result block, each call's result passed straight back in
+    function steerAll(a, b, v) {
+        const as = a.values, bs = b.values, vs = v.values;
+        let acceleration = zero.address;
+        for (let j = 0; j < BOIDS; j += BOIDS_PER_CALL) {
+            acceleration = program.steer(a.address, b.address, v.address, acceleration,
+                as[j], bs[j], vs[j], as[j + 1], bs[j + 1], vs[j + 1],
+                as[j + 2], bs[j + 2], vs[j + 2], as[j + 3], bs[j + 3], vs[j + 3],
+                as[j + 4], bs[j + 4], vs[j + 4], as[j + 5], bs[j + 5], vs[j + 5],
+                as[j + 6], bs[j + 6], vs[j + 6], as[j + 7], bs[j + 7], vs[j + 7]);
+        }
+        return acceleration;
+    }
+
+    let first = null;
+    return {
+        step() {
+            ax.values.set(result(steerAll(x, y, vx)));
+            const ay = steerAll(y, x, vy);
+            // the new x velocity is kept aside until the y one, which needs the
+            // old x velocity, has been worked out
+            newVx.values.set(result(program.fly(vx.address, vy.address, ax.address, ay, BOID_DT)));
+            vy.values.set(result(program.fly(vy.address, vx.address, ay, ax.address, BOID_DT)));
+            vx.values.set(newVx.values);
+            x.values.set(result(program.move(x.address, vx.address, BOID_DT)));
+            y.values.set(result(program.move(y.address, vy.address, BOID_DT)));
+            first ??= { x: x.values.slice(), y: y.values.slice(), vx: vx.values.slice(), vy: vy.values.slice() };
+        },
+        flock: () => ({ x: x.values, y: y.values, vx: vx.values, vy: vy.values, first }),
+    };
+}
+
+function boidsJavaScript() {
+    const state = flockStart();
+    const ax = new Float32Array(BOIDS), ay = new Float32Array(BOIDS);
+    let first = null;
+    return {
+        step() {
+            boidsStep(state, ax, ay);
+            first ??= { x: state.x.slice(), y: state.y.slice(), vx: state.vx.slice(), vy: state.vy.slice() };
+        },
+        flock: () => ({ ...state, first }),
+    };
+}
+
+// each bird is a small triangle pointing the way it flies, coloured by its
+// heading, so birds flying together share a colour. the birds are drawn in 24
+// groups of similar heading, one colour change per group
+function drawBoids(context, flock) {
+    const size = context.canvas.width;
+    const groups = 24;
+    context.fillStyle = "#03060a";
+    context.fillRect(0, 0, size, size);
+    const heading = new Int32Array(BOIDS);
+    for (let i = 0; i < BOIDS; i++) {
+        const angle = Math.atan2(flock.vy[i], flock.vx[i]) / (Math.PI * 2) + 0.5;
+        heading[i] = Math.min(Math.floor(angle * groups), groups - 1);
+    }
+    for (let group = 0; group < groups; group++) {
+        context.fillStyle = `hsl(${(group * 360) / groups}, 85%, 65%)`;
+        context.beginPath();
+        for (let i = 0; i < BOIDS; i++) {
+            if (heading[i] !== group) continue;
+            const speed = Math.hypot(flock.vx[i], flock.vy[i]) || 1;
+            // canvas y runs downwards
+            const fx = flock.vx[i] / speed, fy = -flock.vy[i] / speed;
+            const px = flock.x[i] * size, py = (1 - flock.y[i]) * size;
+            context.moveTo(px + fx * 6, py + fy * 6);
+            context.lineTo(px - fx * 3 - fy * 2.5, py - fy * 3 + fx * 2.5);
+            context.lineTo(px - fx * 3 + fy * 2.5, py - fy * 3 - fx * 2.5);
+        }
+        context.fill();
+    }
+}
+
+function compareBoids(lanes, javascript) {
+    let worst = 0;
+    for (const key of ["x", "y", "vx", "vy"]) {
+        for (let i = 0; i < BOIDS; i++) {
+            worst = Math.max(worst, Math.abs(lanes.first[key][i] - javascript.first[key][i]));
+        }
+    }
+    // a bird right on the edge of another's range can be counted by one side and
+    // not the other, and the difference then spreads through the flock, so the
+    // check is on the first step
+    return {
+        agree: worst < 1e-5,
+        text: `after one step the birds agree to within ${worst.toPrecision(1)}`,
+    };
+}
+
+// ---------------------------------------------------------------- Voronoi diagram
+
+const VORONOI_SIZE = 512;        // must match the field length in voronoi.lanes (512 * 512)
+const SEEDS = 64;
+const SEEDS_PER_CALL = 8;        // must match the number of x, y, id triples in nearest
+const VORONOI_FRAMES = 120;
+const FAR_AWAY = 16777216;
+
+// where each seed starts and which way it drifts
+const seedPaths = (() => {
+    const next = random(3);
+    return Array.from({ length: SEEDS }, () => {
+        const x = next(), y = next(), angle = next() * Math.PI * 2;
+        return { x, y, vx: 0.003 * Math.cos(angle), vy: 0.003 * Math.sin(angle) };
+    });
+})();
+
+// folds t back into 0 to 1, the way a ball bounces between two walls
+function bounce(t) {
+    const folded = t - Math.floor(t / 2) * 2;
+    return folded > 1 ? 2 - folded : folded;
+}
+
+// the seeds' positions in a frame
+function seedsAt(frame) {
+    const x = new Float32Array(SEEDS), y = new Float32Array(SEEDS);
+    seedPaths.forEach((path, k) => {
+        x[k] = bounce(path.x + path.vx * frame);
+        y[k] = bounce(path.y + path.vy * frame);
+    });
+    return { x, y };
+}
+
+// each seed's colour, from its number, as in shade in voronoi.lanes. the
+// JavaScript version works these out once; LANES works them out for every pixel
+const seedColours = Array.from({ length: SEEDS }, (_, id) => {
+    const spread = id * 0.618034;
+    const hue = spread - Math.floor(spread);
+    const clamp = (value) => Math.min(Math.max(value, 0), 1);
+    return [
+        clamp(Math.abs(hue * 6 - 3) - 1),
+        clamp(2 - Math.abs(hue * 6 - 2)),
+        clamp(2 - Math.abs(hue * 6 - 4)),
+    ];
+});
+
+// the JavaScript version simply keeps the nearest distance and seed in two
+// variables, which a ruleset cannot do, and darkens the cell the same way
+function voronoiJavaScriptFrame(seeds, pixels) {
+    const sx = seeds.x, sy = seeds.y;
+    for (let row = 0, i = 0; row < VORONOI_SIZE; row++) {
+        const y = (row + 0.5) / VORONOI_SIZE;
+        for (let column = 0; column < VORONOI_SIZE; column++, i++) {
+            const x = (column + 0.5) / VORONOI_SIZE;
+            let nearest = Infinity, id = 0;
+            for (let k = 0; k < SEEDS; k++) {
+                const dx = x - sx[k], dy = y - sy[k];
+                const d = dx * dx + dy * dy;
+                if (d < nearest) {
+                    nearest = d;
+                    id = k;
+                }
+            }
+            const light = Math.min(Math.max(1 - Math.sqrt(nearest) * 5, 0.25), 1) * 230 * 0.8;
+            const [red, green, blue] = seedColours[id];
+            pixels[i] = ((30 + red * light) | 0) + ((30 + green * light) | 0) * 256
+                + ((30 + blue * light) | 0) * 65536 - 16777216;
+        }
+    }
+}
+
+async function voronoiLanes() {
+    const program = await instantiate("voronoi");
+    const count = VORONOI_SIZE * VORONOI_SIZE;
+    const field = { type: Float32Array, cells: count, margin: 0 };
+    const [x, y, far] = allocate(program, [field, field, field]).grids;
+    // every pixel's position, from 0 to 1 each way
+    for (let row = 0, i = 0; row < VORONOI_SIZE; row++) {
+        for (let column = 0; column < VORONOI_SIZE; column++, i++) {
+            x.values[i] = (column + 0.5) / VORONOI_SIZE;
+            y.values[i] = (row + 0.5) / VORONOI_SIZE;
+        }
+    }
+    far.values.fill(FAR_AWAY);
+
+    let frame = 0;
+    let pixels = new Int32Array(count);
+    const views = new Map();
+    return {
+        step() {
+            const seeds = seedsAt(frame);
+            const sx = seeds.x, sy = seeds.y;
+            // 8 seeds per call, each result passed straight back in as the key so far
+            let key = far.address;
+            for (let k = 0; k < SEEDS; k += SEEDS_PER_CALL) {
+                key = program.nearest(x.address, y.address, key,
+                    sx[k], sy[k], k, sx[k + 1], sy[k + 1], k + 1,
+                    sx[k + 2], sy[k + 2], k + 2, sx[k + 3], sy[k + 3], k + 3,
+                    sx[k + 4], sy[k + 4], k + 4, sx[k + 5], sy[k + 5], k + 5,
+                    sx[k + 6], sy[k + 6], k + 6, sx[k + 7], sy[k + 7], k + 7);
+            }
+            // the packed pixels stay in shade's result block until the next frame
+            const address = program.shade(key);
+            pixels = views.get(address) ?? new Int32Array(program.memory.buffer, address, count);
+            views.set(address, pixels);
+            frame++;
+        },
+        pixels: () => pixels,
+    };
+}
+
+function voronoiJavaScript() {
+    const pixels = new Int32Array(VORONOI_SIZE * VORONOI_SIZE);
+    // draw the first frame straight away, as the starting picture
+    voronoiJavaScriptFrame(seedsAt(0), pixels);
+    let frame = 0;
+    return {
+        step() {
+            voronoiJavaScriptFrame(seedsAt(frame), pixels);
+            frame++;
+        },
+        pixels: () => pixels,
+    };
+}
+
+function compareVoronoi(lanes, javascript) {
+    const different = differentPixels(lanes, javascript);
+    // LANES rounds each distance down to a whole number of steps to pack it into
+    // the key, so a pixel almost exactly between two seeds can go to either one
+    return {
+        agree: different < lanes.length / 100,
+        text: different === 0
+            ? "every pixel within 2 colour levels"
+            : `${different} of ${lanes.length.toLocaleString()} pixels differ by more than 2 colour levels (likely on boundaries of cells)`,
+    };
+}
+
+// ---------------------------------------------------------------- matrix multiplication
+
+const MATRIX_SIZE = 2048;        // must match the field length in matmul.lanes
+const ROWS_PER_CALL = 8;         // must match the number of b and a parameters in add_rows
+// the canvas shows every second row and column
+const MATRIX_SHOWN = MATRIX_SIZE / 2;
+
+// two matrices of smooth waves plus noise, so their product is a pattern rather
+// than more noise. made once and shared, since they take a moment to build
+let matrixInputs = null;
+
+function matrices() {
+    if (matrixInputs !== null) return matrixInputs;
+    const n = MATRIX_SIZE;
+    const next = random(5);
+    const waves = 4;
+    // A[i][k] = sum of u_m(i) v_m(k), B[k][j] = sum of v_m(k) w_m(j), so
+    // A B = sum of u_m(i) w_m(j) times about n / 2
+    const table = (f) => Array.from({ length: waves }, (_, m) => Float32Array.from({ length: n }, (_, i) => f(m + 1, i / n)));
+    const u = table((m, t) => Math.cos(Math.PI * (m + 1) * 2 * t + m));
+    const v = table((m, t) => Math.sin(Math.PI * m * t));
+    const w = table((m, t) => Math.sin(Math.PI * (5 - m) * 2 * t + 0.5 * m));
+    const a = new Float32Array(n * n), b = new Float32Array(n * n);
+    for (let i = 0; i < n; i++) {
+        for (let k = 0; k < n; k++) {
+            let sumA = 0, sumB = 0;
+            for (let m = 0; m < waves; m++) {
+                sumA += u[m][i] * v[m][k];
+                sumB += v[m][i] * w[m][k];
+            }
+            a[i * n + k] = sumA + next() - 0.5;
+            b[i * n + k] = sumB + next() - 0.5;
+        }
+    }
+    matrixInputs = { a, b };
+    return matrixInputs;
+}
+
+// row i of C, as in matmul.lanes: the rows of B, each scaled by one number from
+// row i of A, added up. adding 8 rows per pass over the row of C, as the LANES
+// version does, is over twice as fast as the usual one row at a time
+function matrixRow(a, b, c, i) {
+    const n = MATRIX_SIZE, row = i * n;
+    for (let k = 0; k < n; k += 8) {
+        const a0 = a[row + k], a1 = a[row + k + 1], a2 = a[row + k + 2], a3 = a[row + k + 3];
+        const a4 = a[row + k + 4], a5 = a[row + k + 5], a6 = a[row + k + 6], a7 = a[row + k + 7];
+        const b0 = k * n, b1 = b0 + n, b2 = b1 + n, b3 = b2 + n;
+        const b4 = b3 + n, b5 = b4 + n, b6 = b5 + n, b7 = b6 + n;
+        for (let j = 0; j < n; j++) {
+            c[row + j] += a0 * b[b0 + j] + a1 * b[b1 + j] + a2 * b[b2 + j] + a3 * b[b3 + j]
+                + a4 * b[b4 + j] + a5 * b[b5 + j] + a6 * b[b6 + j] + a7 * b[b7 + j];
+        }
+    }
+}
+
+async function matmulLanes() {
+    const program = await instantiate("matmul");
+    const n = MATRIX_SIZE;
+    const memory = allocate(program, [
+        { type: Float32Array, cells: n * n, margin: 0 },
+        { type: Float32Array, cells: n * n, margin: 0 },
+        { type: Float32Array, cells: n, margin: 0 },
+    ]);
+    // `zero` stays all zeros: a row of C before any row of B is added.
+    // A stays outside: the page only reads numbers from it to pass as uniforms
+    const [b, c, zero] = memory.grids;
+    const { a } = matrices();
+    b.values.set(matrices().b);
+    const rowBytes = n * 4;
+
+    let rows = 0;
+    return {
+        step() {
+            const i = rows, base = i * n;
+            let row = zero.address;
+            for (let k = 0; k < n; k += ROWS_PER_CALL) {
+                // rows k to k + 7 of B are fields at consecutive addresses
+                const first = b.address + k * rowBytes;
+                row = program.add_rows(row,
+                    first, first + rowBytes, first + 2 * rowBytes, first + 3 * rowBytes,
+                    first + 4 * rowBytes, first + 5 * rowBytes, first + 6 * rowBytes, first + 7 * rowBytes,
+                    a[base + k], a[base + k + 1], a[base + k + 2], a[base + k + 3],
+                    a[base + k + 4], a[base + k + 5], a[base + k + 6], a[base + k + 7]);
+            }
+            c.values.set(new Float32Array(program.memory.buffer, row, n), base);
+            rows++;
+        },
+        product: () => ({ c: c.values, rows }),
+    };
+}
+
+function matmulJavaScript() {
+    const { a, b } = matrices();
+    const c = new Float32Array(MATRIX_SIZE * MATRIX_SIZE);
+    let rows = 0;
+    return {
+        step() {
+            matrixRow(a, b, c, rows);
+            rows++;
+        },
+        product: () => ({ c, rows }),
+    };
+}
+
+// a heat map of C: blue below zero, orange above, rows not worked out yet in black
+function drawMatrix(image, { c, rows }) {
+    const n = MATRIX_SIZE, scale = 1 / n;
+    const pixels = image.data;
+    for (let y = 0, p = 0; y < MATRIX_SHOWN; y++) {
+        const i = y * 2;
+        for (let x = 0; x < MATRIX_SHOWN; x++, p += 4) {
+            const value = i < rows ? Math.min(Math.max(c[i * n + x * 2] * scale, -1), 1) : 0;
+            const strength = Math.abs(value);
+            const [red, green, blue] = value >= 0 ? [255, 160, 80] : [95, 179, 255];
+            pixels[p] = 11 + (red - 11) * strength;
+            pixels[p + 1] = 19 + (green - 19) * strength;
+            pixels[p + 2] = 29 + (blue - 29) * strength;
+            pixels[p + 3] = i < rows ? 255 : 0;
+        }
+    }
+}
+
+function compareMatrix(lanes, javascript) {
+    let worst = 0, largest = 0;
+    for (let i = 0; i < lanes.c.length; i++) {
+        worst = Math.max(worst, Math.abs(lanes.c[i] - javascript.c[i]));
+        largest = Math.max(largest, Math.abs(javascript.c[i]));
+    }
+    const relative = worst / largest;
+    // both add the same numbers in the same groups of 8, but LANES rounds to 32 bits
+    // after every addition and JavaScript only when it stores the result
+    return {
+        agree: relative < 1e-5,
+        text: `every entry agrees to within ${relative.toPrecision(1)} of the largest entry`,
+    };
+}
+
+// ---------------------------------------------------------------- the demos
+
+const DEMOS = [
+    {
+        id: "blur",
+        title: `Image blur · ${BLUR_PASSES} passes`,
+        description: `A ${BLUR_SIZE} × ${BLUR_SIZE} picture blurred ${BLUR_PASSES} times. Blurring is purely arithmetic with no branching, lending itself to SIMD acceleration.`,
+        size: BLUR_SIZE,
+        steps: BLUR_PASSES,
+        unit: "passes",
+        create: { lanes: blurLanes, javascript: blurJavaScript },
+        output: (simulation) => simulation.channels(),
+        draw: drawBlur,
+        compare: compareBlur,
+        controls: pictureControls,
+    },
+    {
+        id: "reaction",
+        title: `Reaction–diffusion · ${REACTION_STEPS.toLocaleString()} steps`,
+        description: `Two simulated chemicals spread and react across a ${REACTION_SIZE} × ${REACTION_SIZE} grid, growing coral-like patterns from a few drops.`,
+        size: REACTION_SIZE,
+        steps: REACTION_STEPS,
+        unit: "steps",
+        create: { lanes: reactionLanes, javascript: reactionJavaScript },
+        output: (simulation) => simulation.chemicals(),
+        draw: drawReaction,
+        compare: compareReaction,
+    },
+    {
+        id: "boids",
+        title: `Flocking birds · ${BOIDS.toLocaleString()} birds, ${BOID_STEPS} steps`,
+        description: `${BOIDS.toLocaleString()} birds fly as a flock, each one steering by the birds around it, a technique used for crowds and swarms in games and films. JavaScript can skip the behaviour calculation for distant pairs, which LANES cannot, so the gap between them is smaller here.`,
+        size: 600,
+        steps: BOID_STEPS,
+        unit: "steps",
+        create: { lanes: boidsLanes, javascript: boidsJavaScript },
+        output: (simulation) => simulation.flock(),
+        chart: drawBoids,
+        compare: compareBoids,
+    },
+    {
+        id: "voronoi",
+        title: `Voronoi diagram · ${VORONOI_FRAMES} frames`,
+        description: `${SEEDS} points drift around a ${VORONOI_SIZE} × ${VORONOI_SIZE} picture, and every pixel takes the colour of the nearest point, splitting the picture into cells. Diagrams like this are used in maps, procedural textures and game worlds.`,
+        size: VORONOI_SIZE,
+        steps: VORONOI_FRAMES,
+        unit: "frames",
+        create: { lanes: voronoiLanes, javascript: voronoiJavaScript },
+        output: (simulation) => simulation.pixels(),
+        draw: drawPackedPixels,
+        compare: compareVoronoi,
+    },
+    {
+        id: "matmul",
+        title: `Matrix multiplication · ${MATRIX_SIZE} × ${MATRIX_SIZE}`,
+        description: `Multiplies two ${MATRIX_SIZE} × ${MATRIX_SIZE} matrices, ${(MATRIX_SIZE ** 3 / 1e9).toFixed(1)} billion multiply-adds. The resulting image is the answer matrix represented via colour ramp. Orange is positive and blue is negative.`,
+        size: MATRIX_SHOWN,
+        steps: MATRIX_SIZE,
+        unit: "rows",
+        create: { lanes: matmulLanes, javascript: matmulJavaScript },
+        output: (simulation) => simulation.product(),
+        draw: drawMatrix,
+        compare: compareMatrix,
+    },
+    {
+        id: "regression",
+        title: `Polynomial regression · ${REGRESSION_EPOCHS} epochs`,
+        description: `Fits a curve to ${REGRESSION_POINTS.toLocaleString()} noisy points by gradient descent, the same training method used in machine learning.`,
+        size: 600,
+        steps: REGRESSION_EPOCHS,
+        unit: "epochs",
+        create: { lanes: regressionLanes, javascript: regressionJavaScript },
+        output: (simulation) => simulation.model(),
+        chart: drawRegression,
+        sharp: true,
+        compare: compareRegression,
+    },
+];
+
+// ---------------------------------------------------------------- page
+
+// one run at a time across the whole page, so runs never compete for the CPU
+let busy = false;
+const allButtons = [];
+
+function setBusy(value) {
+    busy = value;
+    for (const button of allButtons) {
+        button.disabled = value;
+    }
+}
+
+function nextFrame() {
+    return new Promise((resolve) => requestAnimationFrame(resolve));
+}
+
+function formatTime(milliseconds) {
+    return milliseconds >= 1000 ? `${(milliseconds / 1000).toFixed(2)} s` : `${milliseconds.toFixed(0)} ms`;
+}
+
+// a demo either draws a chart on the canvas, or fills in the pixels of a grid
+function createPanel(element, demo, engine) {
+    const canvas = element.querySelector("canvas");
+    canvas.width = demo.size;
+    canvas.height = demo.height ?? demo.size;
+    canvas.style.aspectRatio = `${canvas.width} / ${canvas.height}`;
+    const context = canvas.getContext("2d");
+    const image = demo.chart ? null : context.createImageData(canvas.width, canvas.height);
+    const footer = element.querySelector(".panel-footer");
+    if (demo.chart) {
+        canvas.classList.add("chart");
+    }
+    return {
+        status: element.querySelector(".status"),
+        bar: element.querySelector(".bar > div"),
+        button: element.querySelector(".run"),
+        show(output) {
+            // a `sharp` chart is drawn with one canvas pixel per screen pixel,
+            // rather than at demo.size and then scaled to fit, which blurs fine detail
+            if (demo.sharp) {
+                const width = Math.round(canvas.clientWidth * devicePixelRatio);
+                if (width > 0 && canvas.width !== width) {
+                    canvas.width = width;
+                    canvas.height = Math.round(width * (demo.height ?? demo.size) / demo.size);
+                }
+            }
+            if (demo.chart) {
+                demo.chart(context, output, engine);
+            } else {
+                demo.draw(image, output);
+                context.putImageData(image, 0, 0);
+            }
+        },
+        // puts a button next to the panel's Run button
+        addButton(button) {
+            footer.insertBefore(button, footer.querySelector(".run"));
+        },
+        // called when a run finishes
+        onResult: null,
+        result: null,
+    };
+}
+
+function fileButton(text, accept, choose) {
+    const label = document.createElement("label");
+    label.className = "file";
+    label.textContent = text;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    label.append(input);
+    input.addEventListener("change", async () => {
+        if (input.files.length === 0 || busy) return;
+        await choose(input.files[0]);
+        input.value = "";
+    });
+    return label;
+}
+
+function setupDemo(demo) {
+    const section = document.getElementById("section-template").content.firstElementChild.cloneNode(true);
+    section.querySelector(".title").textContent = demo.title;
+    section.querySelector(".description").textContent = demo.description;
+    section.querySelector(".source").textContent = EMBEDDED[demo.id + ".lanes"];
+    document.getElementById("demos").append(section);
+
+    const panels = {
+        lanes: createPanel(section.querySelector(".panel.lanes"), demo, "lanes"),
+        javascript: createPanel(section.querySelector(".panel.javascript"), demo, "javascript"),
+    };
+    const verdict = section.querySelector(".verdict");
+
+    // shows the starting state on both sides and forgets any earlier results
+    function reset() {
+        const start = demo.output(demo.create.javascript());
+        for (const panel of Object.values(panels)) {
+            panel.show(start);
+            panel.result = null;
+            panel.onResult?.();
+            panel.status.textContent = "not run yet";
+            panel.bar.style.width = "0";
+        }
+        verdict.textContent = "";
+    }
+
+    function showVerdict() {
+        const { lanes, javascript } = panels;
+        if (lanes.result === null || javascript.result === null) {
+            verdict.textContent = "";
+            return;
+        }
+        const speedup = javascript.result.time / lanes.result.time;
+        const check = demo.compare(lanes.result.output, javascript.result.output);
+        verdict.innerHTML = "";
+        const headline = document.createElement("strong");
+        headline.textContent = speedup >= 1
+            ? `LANES is ${speedup.toFixed(1)}× faster`
+            : `JavaScript is ${(1 / speedup).toFixed(1)}× faster`;
+        const detail = document.createElement("span");
+        detail.className = check.agree ? "good" : "bad";
+        if (check.agree) {
+            // a pass is just a tick, with the details shown on hover
+            const tick = document.createElement("span");
+            tick.className = "tick";
+            tick.textContent = "✓";
+            tick.title = check.text;
+            detail.append(" ", tick);
+        } else {
+            // a failure always shows what went wrong
+            detail.textContent = ` · ✗ ${check.text}`;
+        }
+        verdict.append(headline, detail);
+    }
+
+    // runs as many steps as fit in about 30 ms, then draws and lets the browser
+    // update the page, until every step is done. only the steps are timed
+    async function run(engine) {
+        const panel = panels[engine];
+        // one untimed step on a throwaway copy first, so the browser has already
+        // compiled and optimised this side's code when the timing starts
+        (await demo.create[engine]()).step();
+        const simulation = await demo.create[engine]();
+        panel.result = null;
+        panel.onResult?.();
+        showVerdict();
+
+        // `steps` is the most a run can take: a demo whose simulation has finished()
+        // stops as soon as that says so
+        const finished = () => simulation.finished?.() ?? done >= demo.steps;
+        let done = 0;
+        let time = 0;
+        while (!finished()) {
+            const start = performance.now();
+            let now = start;
+            while (!finished() && now - start < 30) {
+                simulation.step();
+                done++;
+                now = performance.now();
+            }
+            time += now - start;
+
+            panel.show(demo.output(simulation));
+            panel.bar.style.width = `${(100 * done) / demo.steps}%`;
+            panel.status.textContent = `${formatTime(time)} · ${done.toLocaleString()} ${demo.unit}`;
+            await nextFrame();
+        }
+
+        // a run that finished early still fills the bar
+        panel.bar.style.width = "100%";
+        const rate = (done / time) * 1000;
+        panel.status.textContent = `${formatTime(time)} · ${rate.toFixed(rate >= 100 ? 0 : 1)} ${demo.unit}/s`;
+        panel.result = { time, output: demo.output(simulation) };
+        panel.onResult?.();
+        showVerdict();
+    }
+
+    async function guarded(task) {
+        if (busy) return;
+        setBusy(true);
+        try {
+            await task();
+        } catch (error) {
+            console.error(error);
+            verdict.textContent = `error: ${error.message}`;
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    panels.lanes.button.addEventListener("click", () => guarded(() => run("lanes")));
+    panels.javascript.button.addEventListener("click", () => guarded(() => run("javascript")));
+    const both = section.querySelector(".run-both");
+    both.addEventListener("click", () => guarded(async () => {
+        await run("lanes");
+        await run("javascript");
+    }));
+    allButtons.push(panels.lanes.button, panels.javascript.button, both);
+
+    const extra = section.querySelector(".extra");
+    demo.controls?.({ panels, reset, addControl: (control) => extra.append(control) });
+
+    reset();
+}
+
+function start() {
+    if (typeof EMBEDDED === "string") {
+        throw new Error("This is the template page.\n\nRun `make demo` and open demo/benchmarks.html instead.");
+    }
+    if (!WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11]))) {
+        throw new Error("This browser does not support WebAssembly SIMD.");
+    }
+    blurSource = testCard();
+    DEMOS.forEach(setupDemo);
+}
+
+try {
+    start();
+} catch (error) {
+    const element = document.getElementById("error");
+    element.textContent = error.message;
+    element.style.display = "block";
+    console.error(error);
+}
+</script>
+</body>
+</html>

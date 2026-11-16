@@ -1,0 +1,72 @@
+// A LANES implementation of the `boids` (flocking birds) algorithm
+// see: https://en.wikipedia.org/wiki/Boids
+
+// the steering along one axis `a` (`b` is the other) from 8 other birds, given
+// as uniforms. the page calls it for every group of 8, adding up `acceleration`
+ruleset steer(a: field<f32, 2048>, b: field<f32, 2048>, va: field<f32, 2048>, acceleration: field<f32, 2048>,
+              a1: f32, b1: f32, v1: f32, a2: f32, b2: f32, v2: f32,
+              a3: f32, b3: f32, v3: f32, a4: f32, b4: f32, v4: f32,
+              a5: f32, b5: f32, v5: f32, a6: f32, b6: f32, v6: f32,
+              a7: f32, b7: f32, v7: f32, a8: f32, b8: f32, v8: f32) -> field<f32, 2048> {
+    let da1 = a1 - a;
+    let db1 = b1 - b;
+    let d1 = da1 * da1 + db1 * db1;
+    let w1 = max(1.0 - d1 * 400.0, 0.0);
+    let da2 = a2 - a;
+    let db2 = b2 - b;
+    let d2 = da2 * da2 + db2 * db2;
+    let w2 = max(1.0 - d2 * 400.0, 0.0);
+    let da3 = a3 - a;
+    let db3 = b3 - b;
+    let d3 = da3 * da3 + db3 * db3;
+    let w3 = max(1.0 - d3 * 400.0, 0.0);
+    let da4 = a4 - a;
+    let db4 = b4 - b;
+    let d4 = da4 * da4 + db4 * db4;
+    let w4 = max(1.0 - d4 * 400.0, 0.0);
+    let da5 = a5 - a;
+    let db5 = b5 - b;
+    let d5 = da5 * da5 + db5 * db5;
+    let w5 = max(1.0 - d5 * 400.0, 0.0);
+    let da6 = a6 - a;
+    let db6 = b6 - b;
+    let d6 = da6 * da6 + db6 * db6;
+    let w6 = max(1.0 - d6 * 400.0, 0.0);
+    let da7 = a7 - a;
+    let db7 = b7 - b;
+    let d7 = da7 * da7 + db7 * db7;
+    let w7 = max(1.0 - d7 * 400.0, 0.0);
+    let da8 = a8 - a;
+    let db8 = b8 - b;
+    let d8 = da8 * da8 + db8 * db8;
+    let w8 = max(1.0 - d8 * 400.0, 0.0);
+    // per neighbour: cohesion (da), separation (- da / d) and alignment (v - va)
+    return acceleration
+        + w1 * (da1 * (1.0 - 0.002 / (d1 + 0.0001)) + (v1 - va) * 1.5)
+        + w2 * (da2 * (1.0 - 0.002 / (d2 + 0.0001)) + (v2 - va) * 1.5)
+        + w3 * (da3 * (1.0 - 0.002 / (d3 + 0.0001)) + (v3 - va) * 1.5)
+        + w4 * (da4 * (1.0 - 0.002 / (d4 + 0.0001)) + (v4 - va) * 1.5)
+        + w5 * (da5 * (1.0 - 0.002 / (d5 + 0.0001)) + (v5 - va) * 1.5)
+        + w6 * (da6 * (1.0 - 0.002 / (d6 + 0.0001)) + (v6 - va) * 1.5)
+        + w7 * (da7 * (1.0 - 0.002 / (d7 + 0.0001)) + (v7 - va) * 1.5)
+        + w8 * (da8 * (1.0 - 0.002 / (d8 + 0.0001)) + (v8 - va) * 1.5);
+}
+
+// the new velocity along axis `v`, with the speed kept between 0.1 and 0.3
+ruleset fly(v: field<f32, 2048>, w: field<f32, 2048>, av: field<f32, 2048>, aw: field<f32, 2048>, dt: f32) -> field<f32, 2048> {
+    let nv = v + av * dt;
+    let nw = w + aw * dt;
+    let speed = sqrt(nv * nv + nw * nw) + 0.000001;
+    return nv * (clamp(speed, 0.1, 0.3) / speed);
+}
+
+// moves the birds, wrapping round at the edges
+ruleset move(p: field<f32, 2048>, v: field<f32, 2048>, dt: f32) -> field<f32, 2048> {
+    let next = p + v * dt;
+    return next - floor(next);
+}
+
+// required by every program
+function main() -> integer {
+    return 0;
+}

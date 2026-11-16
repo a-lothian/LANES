@@ -1,0 +1,65 @@
+// Voronoi diagram: each pixel of a 512 x 512 picture takes the colour of its
+// nearest seed. the distance and the seed id are packed into one number,
+//
+//     key = floor(distance^2 * 65536) * 128 + id
+//
+// so the nearest seed is just the smallest key
+
+// the smallest key so far, checked against 8 more seeds given as uniforms.
+// the page calls it for every group of 8, passing `key` back in
+ruleset nearest(x: field<f32, 262144>, y: field<f32, 262144>, key: field<f32, 262144>,
+                x1: f32, y1: f32, id1: f32, x2: f32, y2: f32, id2: f32,
+                x3: f32, y3: f32, id3: f32, x4: f32, y4: f32, id4: f32,
+                x5: f32, y5: f32, id5: f32, x6: f32, y6: f32, id6: f32,
+                x7: f32, y7: f32, id7: f32, x8: f32, y8: f32, id8: f32) -> field<f32, 262144> {
+    let dx1 = x - x1;
+    let dy1 = y - y1;
+    let key1 = floor((dx1 * dx1 + dy1 * dy1) * 65536.0) * 128.0 + id1;
+    let dx2 = x - x2;
+    let dy2 = y - y2;
+    let key2 = floor((dx2 * dx2 + dy2 * dy2) * 65536.0) * 128.0 + id2;
+    let dx3 = x - x3;
+    let dy3 = y - y3;
+    let key3 = floor((dx3 * dx3 + dy3 * dy3) * 65536.0) * 128.0 + id3;
+    let dx4 = x - x4;
+    let dy4 = y - y4;
+    let key4 = floor((dx4 * dx4 + dy4 * dy4) * 65536.0) * 128.0 + id4;
+    let dx5 = x - x5;
+    let dy5 = y - y5;
+    let key5 = floor((dx5 * dx5 + dy5 * dy5) * 65536.0) * 128.0 + id5;
+    let dx6 = x - x6;
+    let dy6 = y - y6;
+    let key6 = floor((dx6 * dx6 + dy6 * dy6) * 65536.0) * 128.0 + id6;
+    let dx7 = x - x7;
+    let dy7 = y - y7;
+    let key7 = floor((dx7 * dx7 + dy7 * dy7) * 65536.0) * 128.0 + id7;
+    let dx8 = x - x8;
+    let dy8 = y - y8;
+    let key8 = floor((dx8 * dx8 + dy8 * dy8) * 65536.0) * 128.0 + id8;
+    return min(key, min(min(min(key1, key2), min(key3, key4)), min(min(key5, key6), min(key7, key8))));
+}
+
+// each pixel's colour as one i32 (RGBA): the id picks the hue, and the cell
+// darkens away from its seed
+ruleset shade(key: field<f32, 262144>) -> field<i32, 262144> {
+    let squared = floor(key / 128.0);
+    let id = key - squared * 128.0;
+    let distance = sqrt(squared / 65536.0);
+
+    // spread the hues round the colour wheel using the golden ratio
+    let spread = id * 0.618034;
+    let hue = spread - floor(spread);
+    // hue to colour
+    let red = clamp(abs(hue * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+    let green = clamp(2.0 - abs(hue * 6.0 - 2.0), 0.0, 1.0);
+    let blue = clamp(2.0 - abs(hue * 6.0 - 4.0), 0.0, 1.0);
+
+    let light = clamp(1.0 - distance * 5.0, 0.25, 1.0) * 230.0;
+    return to_i32(30.0 + red * light * 0.8) + to_i32(30.0 + green * light * 0.8) * 256
+        + to_i32(30.0 + blue * light * 0.8) * 65536 - 16777216;
+}
+
+// required by every program
+function main() -> integer {
+    return 0;
+}

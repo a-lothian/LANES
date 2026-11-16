@@ -55,9 +55,31 @@ $(TEST_TARGET): $(TEST_SRCS) $(LIB_OBJS)
 test: $(TEST_TARGET)
 	./$(TEST_TARGET)
 
+# usage: make demo  (then open demo/benchmarks.html in a browser, no server needed)
+# the demo sources are in demo/src: the page template in html/ and the LANES
+# programs in lanes/. the finished page is written to demo/ itself (needs
+# wat2wasm and node)
+DEMO_HTML  := demo/src/html
+DEMO_LANES := demo/src/lanes
+
+BENCHMARKS := blur reaction boids voronoi matmul regression
+
+demo: demo/benchmarks.html
+
+# the benchmark programs. the compiler writes the .wasm next to its input, so it is
+# moved into the build folder afterwards
+$(BUILD)/demo/bench/%.wasm: $(DEMO_LANES)/%.lanes $(TARGET)
+	@mkdir -p $(dir $@)
+	./$(TARGET) $<
+	mv $(DEMO_LANES)/$*.wasm $@
+
+demo/benchmarks.html: $(DEMO_HTML)/benchmarks.template.html $(BENCHMARKS:%=$(BUILD)/demo/bench/%.wasm) $(BENCHMARKS:%=$(DEMO_LANES)/%.lanes) tools/embed_wasm.mjs
+	node tools/embed_wasm.mjs $(DEMO_HTML)/benchmarks.template.html $@ \
+		$(foreach name,$(BENCHMARKS),$(name).wasm=$(BUILD)/demo/bench/$(name).wasm $(name).lanes=$(DEMO_LANES)/$(name).lanes)
+
 clean:
 	rm -rf $(BUILD)
 
 -include $(OBJS:.o=.d)
 
-.PHONY: all run test clean install
+.PHONY: all run test clean install demo

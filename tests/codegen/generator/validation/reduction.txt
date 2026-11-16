@@ -1,4 +1,5 @@
 (module
+  (memory (export "memory") 1)
   (func $total (param $x i32) (result f32)
     (local $__x v128)
     (local $__splat v128)

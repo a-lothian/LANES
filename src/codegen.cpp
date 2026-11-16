@@ -1191,6 +1191,12 @@ void CodeGenerator::generateCallable(const std::string &name,
         if (toWatType(parameter.type, type, "parameter '" + parameter.name + "'"))
         {
             params.push_back({parameter.name, type});
+            // a field parameter is an address the host fills in, so the program needs
+            // memory even if it reserves none of its own (a ruleset that only reduces)
+            if (parameter.type.kind == TypeKind::Field)
+            {
+                hostReadsMemory_ = true;
+            }
         }
         else
         {

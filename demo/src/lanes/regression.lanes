@@ -1,0 +1,59 @@
+// fits y = c0 + c1 x + ... + c7 x^7 to 1048576 points by gradient descent.
+// each step, `error` finds every point's error, gradient_0 to gradient_7 turn
+// those errors into one gradient per coefficient, and the page updates c0 to c7
+
+ruleset error(x: field<f32, 1048576>, y: field<f32, 1048576>,
+              c0: f32, c1: f32, c2: f32, c3: f32,
+              c4: f32, c5: f32, c6: f32, c7: f32) -> field<f32, 1048576> {
+    // Horner's form: c0 + x (c1 + x (c2 + ... + x c7))
+    return c0 + x * (c1 + x * (c2 + x * (c3 + x * (c4 + x * (c5 + x * (c6 + x * c7)))))) - y;
+}
+
+// gradient_k: the mean of the error times x^k
+ruleset gradient_0(e: field<f32, 1048576>) -> f32 {
+    return sum(e) / to_f32(length(e));
+}
+
+ruleset gradient_1(e: field<f32, 1048576>, x: field<f32, 1048576>) -> f32 {
+    return sum(e * x) / to_f32(length(e));
+}
+
+ruleset gradient_2(e: field<f32, 1048576>, x: field<f32, 1048576>) -> f32 {
+    return sum(e * x * x) / to_f32(length(e));
+}
+
+ruleset gradient_3(e: field<f32, 1048576>, x: field<f32, 1048576>) -> f32 {
+    let x2 = x * x;
+    return sum(e * x2 * x) / to_f32(length(e));
+}
+
+ruleset gradient_4(e: field<f32, 1048576>, x: field<f32, 1048576>) -> f32 {
+    let x2 = x * x;
+    return sum(e * x2 * x2) / to_f32(length(e));
+}
+
+ruleset gradient_5(e: field<f32, 1048576>, x: field<f32, 1048576>) -> f32 {
+    let x2 = x * x;
+    return sum(e * x2 * x2 * x) / to_f32(length(e));
+}
+
+ruleset gradient_6(e: field<f32, 1048576>, x: field<f32, 1048576>) -> f32 {
+    let x2 = x * x;
+    return sum(e * x2 * x2 * x2) / to_f32(length(e));
+}
+
+ruleset gradient_7(e: field<f32, 1048576>, x: field<f32, 1048576>) -> f32 {
+    let x2 = x * x;
+    let x3 = x2 * x;
+    return sum(e * x3 * x2 * x2) / to_f32(length(e));
+}
+
+// the mean squared error, shown on the page
+ruleset loss(e: field<f32, 1048576>) -> f32 {
+    return sum(e * e) / to_f32(length(e));
+}
+
+// required by every program; unused by the page
+function main() -> integer {
+    return 0;
+}

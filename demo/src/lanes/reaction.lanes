@@ -1,0 +1,31 @@
+// Gray-Scott reaction-diffusion 
+// see: https://en.wikipedia.org/wiki/Reaction-diffusion_system
+
+// on a 256 x 256 grid: chemical b feeds on a,
+// a is topped up at the `feed` rate and b dies at the `kill` rate.
+// as in blur.lanes, the page passes each grid shifted towards each neighbour.
+// `mask` is 0 on the outer ring of cells, which stay fixed
+
+ruleset react_a(a: field<f32, 65536>,
+                n: field<f32, 65536>, s: field<f32, 65536>, e: field<f32, 65536>, w: field<f32, 65536>,
+                nw: field<f32, 65536>, ne: field<f32, 65536>, sw: field<f32, 65536>, se: field<f32, 65536>,
+                b: field<f32, 65536>, mask: field<f32, 65536>, feed: f32) -> field<f32, 65536> {
+    let laplacian = (n + s + e + w) * 0.2 + (nw + ne + sw + se) * 0.05 - a;
+    let reaction = a * b * b;
+    // a spreads twice as fast as b
+    return a + (laplacian - reaction + (1.0 - a) * feed) * mask;
+}
+
+ruleset react_b(b: field<f32, 65536>,
+                n: field<f32, 65536>, s: field<f32, 65536>, e: field<f32, 65536>, w: field<f32, 65536>,
+                nw: field<f32, 65536>, ne: field<f32, 65536>, sw: field<f32, 65536>, se: field<f32, 65536>,
+                a: field<f32, 65536>, mask: field<f32, 65536>, feed: f32, kill: f32) -> field<f32, 65536> {
+    let laplacian = (n + s + e + w) * 0.2 + (nw + ne + sw + se) * 0.05 - b;
+    let reaction = a * b * b;
+    return b + (laplacian * 0.5 + reaction - b * (feed + kill)) * mask;
+}
+
+// required by every program
+function main() -> integer {
+    return 0;
+}

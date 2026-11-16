@@ -1,0 +1,16 @@
+// matrix multiplication, C = A B, for 2048 x 2048 matrices.
+// row i of C is the rows of B scaled by row i of A and added up. each call adds
+// 8 scaled rows of B to `row`; the page calls it 256 times per row of C
+
+ruleset add_rows(row: field<f32, 2048>,
+                 b1: field<f32, 2048>, b2: field<f32, 2048>, b3: field<f32, 2048>, b4: field<f32, 2048>,
+                 b5: field<f32, 2048>, b6: field<f32, 2048>, b7: field<f32, 2048>, b8: field<f32, 2048>,
+                 a1: f32, a2: f32, a3: f32, a4: f32, a5: f32, a6: f32, a7: f32, a8: f32) -> field<f32, 2048> {
+    return row + b1 * a1 + b2 * a2 + b3 * a3 + b4 * a4
+               + b5 * a5 + b6 * a6 + b7 * a7 + b8 * a8;
+}
+
+// required by every program
+function main() -> integer {
+    return 0;
+}
