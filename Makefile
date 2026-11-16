@@ -5,11 +5,10 @@ CXXFLAGS := -std=c++17 -Wall -Wextra -Iinclude -MMD -MP
 BUILD    := build
 TARGET   := $(BUILD)/lanes
 
-SRCS := main.cpp $(wildcard src/*.cpp)
+SRCS := $(wildcard src/*.cpp)
 OBJS := $(SRCS:%.cpp=$(BUILD)/%.o)
 
-LIB_OBJS     := $(SRCS:main.cpp=)
-LIB_OBJS     := $(patsubst %.cpp,$(BUILD)/%.o,$(filter %.cpp,$(LIB_OBJS)))
+LIB_OBJS     := $(patsubst %.cpp,$(BUILD)/%.o,$(filter-out src/main.cpp,$(SRCS)))
 TEST_SRCS    := tests/run_tests.cpp tests/lexer/run_lexer_test.cpp tests/parser/run_parser_test.cpp  tests/codegen/run_wat_test.cpp tests/codegen/run_codegen_test.cpp tests/semantic/run_symbol_table_test.cpp tests/semantic/run_control_flow_test.cpp tests/semantic/run_type_annotation_test.cpp tests/semantic/run_recursion_test.cpp tests/semantic/run_builtin_test.cpp tests/semantic/run_field_operation_test.cpp tests/semantic/run_ruleset_call_test.cpp tests/semantic/run_reduction_test.cpp tests/semantic/run_math_builtin_test.cpp tests/semantic/run_logical_test.cpp tests/semantic/run_ruleset_contract_test.cpp tests/semantic/run_for_loop_test.cpp tests/exec/run_exec_test.cpp
 TEST_TARGET  := $(BUILD)/run_tests
 
@@ -22,7 +21,7 @@ $(BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# usage: make run input.txt  (extra goals after `run` are passed to the compiler)
+# usage: make run program.lanes  (extra goals after `run` are passed to the compiler)
 RUN_ARGS := $(filter-out run,$(MAKECMDGOALS))
 
 run: $(TARGET)
