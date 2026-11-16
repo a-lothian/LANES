@@ -44,6 +44,24 @@ All build artifacts can be removed with:
 ```
 make clean # remove all build artifacts
 ```
+## Running the examples
+
+The `examples/` folder contains short programs showing each part of the language. Any of them can be compiled and run in one step, which prints the program's output (this requires both WAT2WASM and Node):
+
+```
+make run examples/hello.lanes // compiles the program, then runs it
+```
+
+| Example | Shows |
+| --- | --- |
+| `examples/hello.lanes` | Variables, arithmetic and printing |
+| `examples/control_flow.lanes` | `if` / `else`, `while`, `for` and recursion |
+| `examples/fields.lanes` | Fields, rulesets and `select` |
+| `examples/reductions.lanes` | `sum`, `min_of`, `max_of`, `any` and `all` |
+| `examples/errors.lanes` | A broken program, showing the compiler's error messages |
+
+`make run` also works with your own programs: write a `.lanes` file with a `main` function, and pass its path instead.
+
 ## Running the compiler
 
 Once built, the compiler is at `build/lanes`. It takes one LANES source file:

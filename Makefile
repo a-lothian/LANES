@@ -21,11 +21,17 @@ $(BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# usage: make run program.lanes  (extra goals after `run` are passed to the compiler)
+# usage: make run program.lanes
+# compiles the program, runs its main function with node (printing its output),
+# then deletes the .wasm file. needs wat2wasm and node
 RUN_ARGS := $(filter-out run,$(MAKECMDGOALS))
+RUN_FILE := $(firstword $(RUN_ARGS))
+RUN_WASM := $(basename $(RUN_FILE)).wasm
 
 run: $(TARGET)
-	./$(TARGET) $(RUN_ARGS)
+	@if [ -z "$(RUN_FILE)" ]; then echo "usage: make run program.lanes"; exit 1; fi
+	@./$(TARGET) "$(RUN_FILE)"
+	@node tools/run_wasm.mjs "$(RUN_WASM)"; status=$$?; rm -f "$(RUN_WASM)"; exit $$status
 
 # stop make treating the input file as a target to build
 ifeq ($(firstword $(MAKECMDGOALS)),run)
